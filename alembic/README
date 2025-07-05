@@ -1,0 +1,6 @@
+# Alembic Migration Directory
+
+This directory contains migration scripts and configuration for managing database schema changes using Alembic.
+- env.py: Alembic environment setup.
+- script.py.mako: Template for new migration scripts.
+- versions/: Auto-generated migration scripts.

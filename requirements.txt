@@ -1,0 +1,6 @@
+# Python dependencies for Stock Market Data Dashboard
+requests
+pandas
+sqlalchemy
+psycopg2-binary
+yfinance
