@@ -12,9 +12,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import yfinance as yf
 import pandas as pd
 import math
+import time
+import numpy as np
 from sqlalchemy import create_engine, tuple_
 from sqlalchemy.orm import sessionmaker
-from backend.models import Base, IndexPrice
+from backend.models import Base, IndexPrice, Index
 from datetime import datetime, timedelta
 import logging
 
@@ -79,42 +81,134 @@ INDICES = [
 ]
 
 def get_scalar(val):
+    """Convert pandas/numpy values to native Python scalars for DB insertion."""
     if val is None:
         return None
-    if hasattr(val, 'item'):
+
+    # Handle pandas Series
+    if hasattr(val, 'empty'):
+        if val.empty:
+            return None
         try:
-            v = val.item()
+            val = val.iloc[0] if len(val) > 0 else None
         except Exception:
-            v = float(val.values[0]) if hasattr(val, 'values') else float(val)
-    elif hasattr(val, '__float__'):
-        v = float(val)
-    else:
-        v = val
-    if v is not None and isinstance(v, float) and math.isnan(v):
-        return None
-    return v
+            return None
+
+    # Convert numpy types to Python native types
+    if isinstance(val, (np.generic, np.ndarray)):
+        try:
+            val = val.item()
+        except Exception:
+            return None
+
+    # Handle pandas scalar values
+    if hasattr(val, 'item') and not isinstance(val, (float, int, str)):
+        try:
+            val = val.item()
+        except Exception:
+            return None
+
+    # Handle NaN values
+    if val is not None:
+        if isinstance(val, float) and (val != val):  # NaN check
+            return None
+        if str(val).lower() == 'nan':
+            return None
+
+    return val
 
 def fetch_and_store_latest_indices_prices():
+    """
+    Fetch latest prices for major indices.
+    Uses simple pattern from one-time script.
+    """
     session = Session()
-    total_indices = len(INDICES)
-    count = 0
-    new_records = 0
-    end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=3)
-    logger.info(f"Fetching latest indices prices for {total_indices} indices from {start_date} to {end_date}")
-    print(f"Fetching latest indices prices for {total_indices} indices from {start_date} to {end_date}")
-    batch_prices = []
-    all_keys = set()
-    for idx in INDICES:
-        logger.info(f"Fetching data for {idx['name']} ({idx['ticker']})...")
+    
+    # Initialize quality metrics
+    quality_metrics = {
+        'start_time': datetime.now(),
+        'total_indices': len(INDICES),
+        'indices_processed': 0,
+        'indices_no_changes': 0,
+        'indices_no_yf_data': 0,
+        'indices_api_errors': 0,
+        'total_price_records': 0,
+        'new_price_records': 0,
+        'duplicate_price_records': 0,
+        'invalid_price_records': 0,
+        'api_calls': 0,
+        'api_errors': 0,
+        'database_errors': 0,
+        'missing_open': 0,
+        'missing_high': 0,
+        'missing_low': 0,
+        'missing_close': 0,
+        'missing_volume': 0
+    }
+    
+    print(f"Fetching latest indices data for {len(INDICES)} indices (simple pattern)...")
+    logger.info(f"Fetching latest indices data for {len(INDICES)} indices (simple pattern)")
+    
+    for i, idx in enumerate(INDICES):
+        logger.info(f"Fetching latest data for {idx['name']} ({idx['ticker']})...")
         try:
+            quality_metrics['api_calls'] += 1
             df = yf.download(idx['ticker'], period="3d", interval="1d", progress=False, auto_adjust=False)
+            
             if df is None or df.empty:
                 logger.warning(f"No data for {idx['name']} ({idx['ticker']})")
+                quality_metrics['indices_no_yf_data'] += 1
                 continue
+            
+            # Data quality check: Validate dataframe structure
+            required_columns = ['Open', 'High', 'Low', 'Close']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                logger.warning(f"Missing columns for {idx['name']}: {missing_columns}")
+                quality_metrics['indices_api_errors'] += 1
+                continue
+            
+            price_objects = []
+            all_keys = set()
+            index_price_count = 0
+            index_invalid_prices = 0
+            
             for date, row in df.iterrows():
                 key = (idx['name'], idx['ticker'], date.date())
                 all_keys.add(key)
+                index_price_count += 1
+                
+                # Data quality checks for missing data
+                try:
+                    if 'Open' not in row or pd.isna(row['Open']).any():
+                        quality_metrics['missing_open'] += 1
+                except:
+                    quality_metrics['missing_open'] += 1
+                    
+                try:
+                    if 'High' not in row or pd.isna(row['High']).any():
+                        quality_metrics['missing_high'] += 1
+                except:
+                    quality_metrics['missing_high'] += 1
+                    
+                try:
+                    if 'Low' not in row or pd.isna(row['Low']).any():
+                        quality_metrics['missing_low'] += 1
+                except:
+                    quality_metrics['missing_low'] += 1
+                    
+                try:
+                    if 'Close' not in row or pd.isna(row['Close']).any():
+                        quality_metrics['missing_close'] += 1
+                except:
+                    quality_metrics['missing_close'] += 1
+                    
+                try:
+                    if 'Volume' not in row or pd.isna(row['Volume']).any():
+                        quality_metrics['missing_volume'] += 1
+                except:
+                    quality_metrics['missing_volume'] += 1
+                
                 price = IndexPrice(
                     name=idx['name'],
                     ticker=idx['ticker'],
@@ -127,27 +221,229 @@ def fetch_and_store_latest_indices_prices():
                     close=get_scalar(row['Close']) if 'Close' in row else None,
                     volume=get_scalar(row['Volume']) if 'Volume' in row else None
                 )
-                batch_prices.append(price)
+                
+                # Data quality check: Validate price data
+                if price.close is not None and price.close <= 0:
+                    index_invalid_prices += 1
+                    logger.warning(f"Invalid close price for {idx['name']} on {date.date()}: {price.close}")
+                
+                if price.high is not None and price.low is not None and price.high < price.low:
+                    index_invalid_prices += 1
+                    logger.warning(f"High price less than low price for {idx['name']} on {date.date()}: High={price.high}, Low={price.low}")
+                
+                price_objects.append(price)
+            
+            quality_metrics['total_price_records'] += index_price_count
+            quality_metrics['invalid_price_records'] += index_invalid_prices
+            
+            if all_keys:
+                existing_keys = set(
+                    session.query(IndexPrice.name, IndexPrice.ticker, IndexPrice.date)
+                    .filter(tuple_(IndexPrice.name, IndexPrice.ticker, IndexPrice.date).in_(list(all_keys)))
+                    .all()
+                )
+            else:
+                existing_keys = set()
+            
+            new_prices = [p for p in price_objects if (p.name, p.ticker, p.date) not in existing_keys]
+            quality_metrics['new_price_records'] += len(new_prices)
+            quality_metrics['duplicate_price_records'] += len(price_objects) - len(new_prices)
+            
+            if new_prices:
+                try:
+                    session.bulk_save_objects(new_prices)
+                    session.commit()
+                    logger.info(f"Updated {idx['name']} ({idx['ticker']}) - added {len(new_prices)} new price records")
+                except Exception as e:
+                    quality_metrics['database_errors'] += 1
+                    logger.error(f"Database error for {idx['name']}: {e}")
+                    session.rollback()
+            else:
+                quality_metrics['indices_no_changes'] += 1
+                logger.info(f"No changes for {idx['name']} ({idx['ticker']}) - all price records already exist")
+            
+            quality_metrics['indices_processed'] += 1
+            
+            # Progress tracking
+            print(f"Processed {i+1}/{len(INDICES)} indices: {idx['name']} ({len(new_prices)} new records)")
+            
         except Exception as e:
+            quality_metrics['api_errors'] += 1
+            quality_metrics['indices_api_errors'] += 1
             logger.error(f"Failed to fetch/store data for {idx['name']} ({idx['ticker']}): {e}")
-            print(f"Failed to fetch/store data for {idx['name']} ({idx['ticker']}): {e}")
-    # Query all existing keys in one go
-    if all_keys:
-        existing_keys = set(
-            session.query(IndexPrice.name, IndexPrice.ticker, IndexPrice.date)
-            .filter(tuple_(IndexPrice.name, IndexPrice.ticker, IndexPrice.date).in_(list(all_keys)))
-            .all()
-        )
-    else:
-        existing_keys = set()
-    new_prices = [p for p in batch_prices if (p.name, p.ticker, p.date) not in existing_keys]
-    if new_prices:
-        session.bulk_save_objects(new_prices)
-        session.commit()
-        logger.info(f"Added {len(new_prices)} new index prices.")
+    
+    # Calculate final metrics
+    quality_metrics['end_time'] = datetime.now()
+    quality_metrics['duration'] = quality_metrics['end_time'] - quality_metrics['start_time']
+    
+    # Log comprehensive data quality summary
+    logger.info("=== DAILY INDICES DATA QUALITY SUMMARY ===")
+    logger.info(f"Mode: simple pattern")
+    logger.info(f"Total indices: {quality_metrics['total_indices']}")
+    logger.info(f"Indices processed: {quality_metrics['indices_processed']}")
+    logger.info(f"Indices with no changes: {quality_metrics['indices_no_changes']}")
+    logger.info(f"Indices with no yfinance data: {quality_metrics['indices_no_yf_data']}")
+    logger.info(f"Indices with API errors: {quality_metrics['indices_api_errors']}")
+    logger.info(f"Total price records fetched: {quality_metrics['total_price_records']}")
+    logger.info(f"New price records inserted: {quality_metrics['new_price_records']}")
+    logger.info(f"Duplicate price records (skipped): {quality_metrics['duplicate_price_records']}")
+    logger.info(f"Invalid price records: {quality_metrics['invalid_price_records']}")
+    logger.info(f"Missing Open prices: {quality_metrics['missing_open']}")
+    logger.info(f"Missing High prices: {quality_metrics['missing_high']}")
+    logger.info(f"Missing Low prices: {quality_metrics['missing_low']}")
+    logger.info(f"Missing Close prices: {quality_metrics['missing_close']}")
+    logger.info(f"Missing Volume data: {quality_metrics['missing_volume']}")
+    logger.info(f"API calls made: {quality_metrics['api_calls']}")
+    logger.info(f"API errors: {quality_metrics['api_errors']}")
+    logger.info(f"Database errors: {quality_metrics['database_errors']}")
+    logger.info(f"Processing duration: {quality_metrics['duration']}")
+    logger.info(f"Success rate: {quality_metrics['indices_processed'] / quality_metrics['total_indices'] * 100:.2f}%")
+    
+    print(f"\nDaily Indices Summary:")
+    print(f"- Mode: simple pattern")
+    print(f"- Total indices: {quality_metrics['total_indices']}")
+    print(f"- Indices processed: {quality_metrics['indices_processed']}")
+    print(f"- No changes needed: {quality_metrics['indices_no_changes']}")
+    print(f"- New price records: {quality_metrics['new_price_records']}")
+    print(f"- Success rate: {quality_metrics['indices_processed'] / quality_metrics['total_indices'] * 100:.2f}%")
+    
+    # Analyze indices data quality
+    print("Analyzing indices data quality...")
+    logger.info("=== INDICES DATA QUALITY ANALYSIS ===")
+    indices_quality = analyze_indices_data_quality(session)
+    
+    # Log indices data quality report
+    logger.info(f"Total indices in database: {indices_quality['total_indices']}")
+    logger.info("Indices column-level data quality:")
+    for column, stats in indices_quality['columns'].items():
+        logger.info(f"  {column}:")
+        logger.info(f"    - Data type: {stats['data_type']}")
+        logger.info(f"    - Non-null values: {stats['non_null_values']}/{stats['total_values']} ({stats['non_null_percentage']:.2f}%)")
+        logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
+        logger.info(f"    - Unique values: {stats['unique_values']}")
+    
+    # Analyze index prices data quality
+    print("Analyzing index prices data quality...")
+    logger.info("=== INDEX PRICES DATA QUALITY ANALYSIS ===")
+    index_prices_quality = analyze_index_prices_data_quality(session)
+    
+    # Log index prices data quality report
+    logger.info(f"Total index price records in database: {index_prices_quality['total_index_prices']}")
+    logger.info("Index prices column-level data quality:")
+    for column, stats in index_prices_quality['columns'].items():
+        logger.info(f"  {column}:")
+        logger.info(f"    - Data type: {stats['data_type']}")
+        logger.info(f"    - Non-null values: {stats['non_null_values']}/{stats['total_values']} ({stats['non_null_percentage']:.2f}%)")
+        logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
+        logger.info(f"    - Unique values: {stats['unique_values']}")
+    
+    # Print summary to console
+    print(f"\nIndices Data Quality Summary:")
+    print(f"Total indices: {indices_quality['total_indices']}")
+    print(f"Total index price records: {index_prices_quality['total_index_prices']}")
+    print(f"Indices columns: {len(indices_quality['columns'])}")
+    print(f"Index prices columns: {len(index_prices_quality['columns'])}")
+    print(f"\nIndices column completion rates:")
+    for column, stats in indices_quality['columns'].items():
+        print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
+    print(f"\nIndex prices column completion rates:")
+    for column, stats in index_prices_quality['columns'].items():
+        print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
+    
+    logger.info(f"Daily indices completed: {quality_metrics['indices_processed']} processed, {quality_metrics['new_price_records']} new records, {quality_metrics['indices_no_changes']} no changes, {quality_metrics['indices_api_errors']} errors")
+    
     session.close()
-    logger.info(f"Done fetching indices prices. Processed {count} indices, added {new_records} new records.")
-    print(f"Done fetching indices prices. Processed {count} indices, added {new_records} new records.")
+    logger.info("All indices processed.")
+
+def clean_numeric_value(value):
+    """Clean and convert numeric values"""
+    if value is None or str(value).strip() == '' or str(value).lower() == 'nan':
+        return None
+    
+    try:
+        # Remove any currency symbols, commas, etc.
+        cleaned = str(value).replace(',', '').replace('₹', '').replace('$', '').strip()
+        if cleaned == '' or cleaned.lower() == 'nan':
+            return None
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return None
+
+def analyze_indices_data_quality(session):
+    """Analyze data quality for all columns in the indices table"""
+    quality_report = {
+        'total_indices': 0,
+        'columns': {}
+    }
+    
+    # Get total count
+    total_indices = session.query(Index).count()
+    quality_report['total_indices'] = total_indices
+    
+    # Get column information from the model
+    columns = Index.__table__.columns
+    
+    for column in columns:
+        column_name = column.name
+        
+        # Count non-null values
+        non_null_count = session.query(Index).filter(getattr(Index, column_name) != None).count()
+        null_count = total_indices - non_null_count
+        null_percentage = (null_count / total_indices) * 100 if total_indices > 0 else 0
+        non_null_percentage = (non_null_count / total_indices) * 100 if total_indices > 0 else 0
+        
+        # Count unique values
+        unique_count = session.query(getattr(Index, column_name)).distinct().count()
+        
+        quality_report['columns'][column_name] = {
+            'total_values': total_indices,
+            'non_null_values': non_null_count,
+            'null_values': null_count,
+            'null_percentage': null_percentage,
+            'non_null_percentage': non_null_percentage,
+            'unique_values': unique_count,
+            'data_type': str(column.type)
+        }
+    
+    return quality_report
+
+def analyze_index_prices_data_quality(session):
+    """Analyze data quality for all columns in the index_prices table"""
+    quality_report = {
+        'total_index_prices': 0,
+        'columns': {}
+    }
+    
+    # Get total count
+    total_index_prices = session.query(IndexPrice).count()
+    quality_report['total_index_prices'] = total_index_prices
+    
+    # Get column information from the model
+    columns = IndexPrice.__table__.columns
+    
+    for column in columns:
+        column_name = column.name
+        
+        # Count non-null values
+        non_null_count = session.query(IndexPrice).filter(getattr(IndexPrice, column_name) != None).count()
+        null_count = total_index_prices - non_null_count
+        null_percentage = (null_count / total_index_prices) * 100 if total_index_prices > 0 else 0
+        non_null_percentage = (non_null_count / total_index_prices) * 100 if total_index_prices > 0 else 0
+        
+        # Count unique values
+        unique_count = session.query(getattr(IndexPrice, column_name)).distinct().count()
+        
+        quality_report['columns'][column_name] = {
+            'total_values': total_index_prices,
+            'non_null_values': non_null_count,
+            'null_values': null_count,
+            'null_percentage': null_percentage,
+            'non_null_percentage': non_null_percentage,
+            'unique_values': unique_count,
+            'data_type': str(column.type)
+        }
+    
+    return quality_report
 
 if __name__ == "__main__":
     fetch_and_store_latest_indices_prices() 

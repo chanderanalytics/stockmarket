@@ -52,13 +52,189 @@ def clean_code(code):
     
     return code_str
 
+def clean_numeric_value(value):
+    """Clean and convert numeric values from CSV"""
+    if value is None or str(value).strip() == '' or str(value).lower() == 'nan':
+        return None
+    
+    try:
+        # Remove any currency symbols, commas, etc.
+        cleaned = str(value).replace(',', '').replace('₹', '').replace('$', '').strip()
+        if cleaned == '' or cleaned.lower() == 'nan':
+            return None
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return None
+
+def analyze_csv_data_quality(df):
+    """Analyze data quality for all columns in the CSV"""
+    quality_report = {
+        'total_rows': len(df),
+        'columns': {}
+    }
+    
+    for column in df.columns:
+        total_values = len(df)
+        non_null_values = df[column].notna().sum()
+        null_values = total_values - non_null_values
+        null_percentage = (null_values / total_values) * 100 if total_values > 0 else 0
+        non_null_percentage = (non_null_values / total_values) * 100 if total_values > 0 else 0
+        
+        # Check for empty strings
+        empty_strings = 0
+        if df[column].dtype == 'object':
+            empty_strings = (df[column].astype(str).str.strip() == '').sum()
+        
+        # Check for 'nan' strings
+        nan_strings = 0
+        if df[column].dtype == 'object':
+            nan_strings = (df[column].astype(str).str.lower() == 'nan').sum()
+        
+        quality_report['columns'][column] = {
+            'total_values': total_values,
+            'non_null_values': non_null_values,
+            'null_values': null_values,
+            'null_percentage': null_percentage,
+            'non_null_percentage': non_null_percentage,
+            'empty_strings': empty_strings,
+            'nan_strings': nan_strings,
+            'data_type': str(df[column].dtype),
+            'unique_values': df[column].nunique()
+        }
+    
+    return quality_report
+
+def analyze_database_table_quality(session):
+    """Analyze data quality for all columns in the companies table"""
+    quality_report = {
+        'total_rows': 0,
+        'columns': {}
+    }
+    
+    # Get total count
+    total_rows = session.query(Company).count()
+    quality_report['total_rows'] = total_rows
+    
+    # Get column information from the model
+    columns = Company.__table__.columns
+    
+    for column in columns:
+        column_name = column.name
+        
+        # Count non-null values
+        non_null_count = session.query(Company).filter(getattr(Company, column_name) != None).count()
+        null_count = total_rows - non_null_count
+        null_percentage = (null_count / total_rows) * 100 if total_rows > 0 else 0
+        non_null_percentage = (non_null_count / total_rows) * 100 if total_rows > 0 else 0
+        
+        # Count unique values
+        unique_count = session.query(getattr(Company, column_name)).distinct().count()
+        
+        quality_report['columns'][column_name] = {
+            'total_values': total_rows,
+            'non_null_values': non_null_count,
+            'null_values': null_count,
+            'null_percentage': null_percentage,
+            'non_null_percentage': non_null_percentage,
+            'unique_values': unique_count,
+            'data_type': str(column.type)
+        }
+    
+    return quality_report
+
+def analyze_companies_data_quality(session):
+    """Analyze data quality for all columns in the companies table"""
+    quality_report = {
+        'total_companies': 0,
+        'companies_columns': {}
+    }
+    
+    # Get total count
+    total_companies = session.query(Company).count()
+    quality_report['total_companies'] = total_companies
+    
+    # Define companies columns to analyze
+    company_columns = [
+        'id', 'name', 'nse_code', 'bse_code', 'industry', 'exchange',
+        'sector_yf', 'industry_yf', 'country_yf', 'website_yf', 'longBusinessSummary_yf',
+        'fullTimeEmployees_yf', 'city_yf', 'state_yf', 'address1_yf', 'zip_yf', 'phone_yf',
+        'marketCap_yf', 'sharesOutstanding_yf', 'logo_url_yf', 'exchange_yf', 'currency_yf',
+        'financialCurrency_yf', 'beta_yf', 'trailingPE_yf', 'forwardPE_yf', 'priceToBook_yf',
+        'bookValue_yf', 'payoutRatio_yf', 'ebitda_yf', 'revenueGrowth_yf', 'grossMargins_yf',
+        'operatingMargins_yf', 'profitMargins_yf', 'returnOnAssets_yf', 'returnOnEquity_yf',
+        'totalRevenue_yf', 'grossProfits_yf', 'freeCashflow_yf', 'operatingCashflow_yf',
+        'debtToEquity_yf', 'currentRatio_yf', 'quickRatio_yf', 'shortRatio_yf', 'pegRatio_yf',
+        'enterpriseValue_yf', 'enterpriseToRevenue_yf', 'enterpriseToEbitda_yf'
+    ]
+    
+    for column_name in company_columns:
+        if hasattr(Company, column_name):
+            # Count non-null values
+            non_null_count = session.query(Company).filter(getattr(Company, column_name) != None).count()
+            null_count = total_companies - non_null_count
+            null_percentage = (null_count / total_companies) * 100 if total_companies > 0 else 0
+            non_null_percentage = (non_null_count / total_companies) * 100 if total_companies > 0 else 0
+            
+            # Count unique values
+            unique_count = session.query(getattr(Company, column_name)).distinct().count()
+            
+            quality_report['companies_columns'][column_name] = {
+                'total_values': total_companies,
+                'non_null_values': non_null_count,
+                'null_values': null_count,
+                'null_percentage': null_percentage,
+                'non_null_percentage': non_null_percentage,
+                'unique_values': unique_count
+            }
+    
+    return quality_report
+
+def compare_and_update_company_data(existing_company, company_data):
+    """Compare existing company data with CSV data and update only changed values"""
+    changes_made = False
+    updated_fields = []
+    
+    # Define company fields to check
+    company_fields = {
+        'name': company_data.get('name'),
+        'nse_code': company_data.get('nse_code'),
+        'bse_code': company_data.get('bse_code'),
+        'industry': company_data.get('industry')
+    }
+    
+    for field_name, new_value in company_fields.items():
+        if hasattr(existing_company, field_name):
+            current_value = getattr(existing_company, field_name)
+            
+            # Compare values (handle None cases)
+            if current_value != new_value:
+                setattr(existing_company, field_name, new_value)
+                changes_made = True
+                updated_fields.append(field_name)
+    
+    return changes_made, updated_fields
+
 def import_companies_from_csv(csv_file_path):
-    """Import companies from CSV file using unified codes"""
+    """Import companies from CSV file using unified codes with smart comparison"""
     session = Session()
+    
+    # Initialize quality metrics
+    quality_metrics = {
+        'start_time': datetime.now(),
+        'csv_total_rows': 0,
+        'csv_valid_rows': 0,
+        'csv_invalid_rows': 0,
+        'companies_imported': 0,
+        'companies_updated': 0,
+        'companies_no_changes': 0,
+        'companies_errors': 0,
+        'database_errors': 0
+    }
     
     try:
         # Read CSV file
         df = pd.read_csv(csv_file_path)
+        quality_metrics['csv_total_rows'] = len(df)
         print(f"Loaded {len(df)} companies from CSV")
         logger.info(f"Loaded {len(df)} companies from CSV")
         
@@ -70,9 +246,11 @@ def import_companies_from_csv(csv_file_path):
             
             # Skip if no valid codes
             if not nse_code and not bse_code:
+                quality_metrics['csv_invalid_rows'] += 1
                 logger.warning(f"Skipping company with no valid codes: {row.get('Company Name', 'Unknown')}")
                 continue
             
+            quality_metrics['csv_valid_rows'] += 1
             company_data = {
                 'name': row.get('Company Name', row.get('company_name', '')),
                 'nse_code': nse_code,
@@ -86,10 +264,6 @@ def import_companies_from_csv(csv_file_path):
         logger.info(f"Valid companies to import: {len(valid_companies)}")
         
         # Import companies
-        imported_count = 0
-        updated_count = 0
-        error_count = 0
-        
         for i, company_data in enumerate(valid_companies, 1):
             try:
                 # Check if company exists by unified codes
@@ -105,18 +279,21 @@ def import_companies_from_csv(csv_file_path):
                     ).first()
                 
                 if existing_company:
-                    # Update existing company
-                    for key, value in company_data.items():
-                        if value is not None:
-                            setattr(existing_company, key, value)
-                    session.merge(existing_company)
-                    updated_count += 1
-                    logger.info(f"Updated existing company: {company_data['name']}")
+                    # Smart comparison and update
+                    changes_made, updated_fields = compare_and_update_company_data(existing_company, company_data)
+                    
+                    if changes_made:
+                        session.merge(existing_company)
+                        quality_metrics['companies_updated'] += 1
+                        logger.info(f"Updated existing company: {company_data['name']} - changed fields: {', '.join(updated_fields)}")
+                    else:
+                        quality_metrics['companies_no_changes'] += 1
+                        logger.info(f"No changes for existing company: {company_data['name']} - data is current")
                 else:
                     # Create new company
                     new_company = Company(**company_data)
                     session.add(new_company)
-                    imported_count += 1
+                    quality_metrics['companies_imported'] += 1
                     logger.info(f"Imported new company: {company_data['name']}")
                 
                 if i % 100 == 0:
@@ -124,25 +301,69 @@ def import_companies_from_csv(csv_file_path):
                     print(f"Processed {i}/{len(valid_companies)} companies...")
                 
             except Exception as e:
-                error_count += 1
+                quality_metrics['companies_errors'] += 1
                 logger.error(f"Error processing {company_data['name']}: {e}")
                 continue
         
         # Final commit
         session.commit()
         
-        print(f"\nImport Summary:")
-        print(f"- Total companies in CSV: {len(df)}")
-        print(f"- Valid companies: {len(valid_companies)}")
-        print(f"- New companies imported: {imported_count}")
-        print(f"- Existing companies updated: {updated_count}")
-        print(f"- Errors: {error_count}")
+        # Calculate final metrics
+        quality_metrics['end_time'] = datetime.now()
+        quality_metrics['duration'] = quality_metrics['end_time'] - quality_metrics['start_time']
         
-        logger.info(f"Import completed: {imported_count} imported, {updated_count} updated, {error_count} errors")
+        # Log comprehensive data quality summary
+        logger.info("=== COMPANIES IMPORT DATA QUALITY SUMMARY ===")
+        logger.info(f"Mode: smart comparison")
+        logger.info(f"CSV total rows: {quality_metrics['csv_total_rows']}")
+        logger.info(f"CSV valid rows: {quality_metrics['csv_valid_rows']}")
+        logger.info(f"CSV invalid rows: {quality_metrics['csv_invalid_rows']}")
+        logger.info(f"Companies imported: {quality_metrics['companies_imported']}")
+        logger.info(f"Companies updated: {quality_metrics['companies_updated']}")
+        logger.info(f"Companies with no changes: {quality_metrics['companies_no_changes']}")
+        logger.info(f"Companies errors: {quality_metrics['companies_errors']}")
+        logger.info(f"Database errors: {quality_metrics['database_errors']}")
+        logger.info(f"Processing duration: {quality_metrics['duration']}")
+        logger.info(f"Success rate: {(quality_metrics['companies_imported'] + quality_metrics['companies_updated']) / quality_metrics['csv_valid_rows'] * 100:.2f}%")
+        
+        print(f"\nImport Summary:")
+        print(f"- Mode: smart comparison")
+        print(f"- Total companies in CSV: {quality_metrics['csv_total_rows']}")
+        print(f"- Valid companies: {quality_metrics['csv_valid_rows']}")
+        print(f"- New companies imported: {quality_metrics['companies_imported']}")
+        print(f"- Existing companies updated: {quality_metrics['companies_updated']}")
+        print(f"- No changes needed: {quality_metrics['companies_no_changes']}")
+        print(f"- Errors: {quality_metrics['companies_errors']}")
+        print(f"- Success rate: {(quality_metrics['companies_imported'] + quality_metrics['companies_updated']) / quality_metrics['csv_valid_rows'] * 100:.2f}%")
+        
+        # Analyze companies data quality
+        print("Analyzing companies data quality...")
+        logger.info("=== COMPANIES DATA QUALITY ANALYSIS ===")
+        companies_quality = analyze_companies_data_quality(session)
+        
+        # Log companies data quality report
+        logger.info(f"Total companies in database: {companies_quality['total_companies']}")
+        logger.info("Companies column-level data quality:")
+        for column, stats in companies_quality['companies_columns'].items():
+            logger.info(f"  {column}:")
+            logger.info(f"    - Non-null values: {stats['non_null_values']}/{stats['total_values']} ({stats['non_null_percentage']:.2f}%)")
+            logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
+            logger.info(f"    - Unique values: {stats['unique_values']}")
+        
+        # Print summary to console
+        print(f"\nCompanies Data Quality Summary:")
+        print(f"Total companies: {companies_quality['total_companies']}")
+        print(f"Companies columns analyzed: {len(companies_quality['companies_columns'])}")
+        print(f"\nCompanies column completion rates:")
+        for column, stats in companies_quality['companies_columns'].items():
+            print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
+        
+        logger.info(f"Import completed: {quality_metrics['companies_imported']} imported, {quality_metrics['companies_updated']} updated, {quality_metrics['companies_no_changes']} no changes, {quality_metrics['companies_errors']} errors")
         
     except Exception as e:
-        session.rollback()
+        quality_metrics['database_errors'] += 1
         logger.error(f"Import failed: {e}")
+        session.rollback()
         raise
     finally:
         session.close()
