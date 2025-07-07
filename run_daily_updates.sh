@@ -27,22 +27,22 @@ fi
 echo "Starting daily updates workflow..." | tee -a "$log_file"
 
 # 1. Import companies from CSV (in case new companies added)
-echo "Starting 1.1_import_screener_companies.py at $(date)" | tee -a "$log_file"
+echo "Starting 1.1_import_screener_companies_daily.py at $(date)" | tee -a "$log_file"
 start1=$(date +%s)
-python3 data_ingestion/1.1_import_screener_companies.py data_ingestion/screener_export_20250704.csv | tee -a "$log_file"
-echo "1.1_import_screener_companies.py completed successfully at $(date)" | tee -a "$log_file"
+python3 data_ingestion/1.1_import_screener_companies_daily.py data_ingestion/screener_export_20250704.csv | tee -a "$log_file"
+echo "1.1_import_screener_companies_daily.py completed successfully at $(date)" | tee -a "$log_file"
 end1=$(date +%s)
 dur1=$(( (end1 - start1) / 60 ))
-echo "1.1_import_screener_companies.py duration: $dur1 minutes" | tee -a "$log_file"
+echo "1.1_import_screener_companies_daily.py duration: $dur1 minutes" | tee -a "$log_file"
 
 # 2. Fetch yfinance info (update existing companies)
-echo "Starting 1.2_add_yf_in_companies.py at $(date)" | tee -a "$log_file"
+echo "Starting 1.2_add_yf_in_companies_daily.py at $(date)" | tee -a "$log_file"
 start2=$(date +%s)
-python3 data_ingestion/1.2_add_yf_in_companies.py | tee -a "$log_file"
-echo "1.2_add_yf_in_companies.py completed successfully at $(date)" | tee -a "$log_file"
+python3 data_ingestion/1.2_add_yf_in_companies_daily.py | tee -a "$log_file"
+echo "1.2_add_yf_in_companies_daily.py completed successfully at $(date)" | tee -a "$log_file"
 end2=$(date +%s)
 dur2=$(( (end2 - start2) / 60 ))
-echo "1.2_add_yf_in_companies.py duration: $dur2 minutes" | tee -a "$log_file"
+echo "1.2_add_yf_in_companies_daily.py duration: $dur2 minutes" | tee -a "$log_file"
 
 # 3. Backup companies after daily updates
 echo "Starting 1.4_daily_backup_companies.py at $(date)" | tee -a "$log_file"

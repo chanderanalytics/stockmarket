@@ -1,8 +1,9 @@
 """
-Script to import companies from Screener CSV using unified codes.
+Script to import companies from Screener CSV using unified codes - ONETIME/FULL VERSION.
 
 This script imports companies from a Screener CSV file and handles
 the mapping between unified codes and database IDs properly.
+Optimized for one-time/full runs with onetime logging.
 """
 
 import sys
@@ -16,7 +17,7 @@ from datetime import datetime
 import math
 import logging
 
-# Set up logging
+# Set up logging for one-time/full runs
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
 logging.basicConfig(
     filename=f'log/import_companies_onetime_{log_datetime}.log',
@@ -189,30 +190,19 @@ def analyze_companies_data_quality(session):
     
     return quality_report
 
-def compare_and_update_company_data(existing_company, company_data):
-    """Compare existing company data with CSV data and update only changed values"""
-    changes_made = False
+def compare_and_update_company(db_company, csv_company_dict):
+    changed = False
     updated_fields = []
-    
-    # Define company fields to check
-    company_fields = {
-        'name': company_data.get('name'),
-        'nse_code': company_data.get('nse_code'),
-        'bse_code': company_data.get('bse_code'),
-        'industry': company_data.get('industry')
-    }
-    
-    for field_name, new_value in company_fields.items():
-        if hasattr(existing_company, field_name):
-            current_value = getattr(existing_company, field_name)
-            
-            # Compare values (handle None cases)
-            if current_value != new_value:
-                setattr(existing_company, field_name, new_value)
-                changes_made = True
-                updated_fields.append(field_name)
-    
-    return changes_made, updated_fields
+    field_changes = []
+    for field, new_value in csv_company_dict.items():
+        if hasattr(db_company, field):
+            old_value = getattr(db_company, field)
+            if old_value != new_value:
+                setattr(db_company, field, new_value)
+                changed = True
+                updated_fields.append(field)
+                field_changes.append((field, old_value, new_value))
+    return changed, updated_fields, field_changes
 
 def import_companies_from_csv(csv_file_path):
     """Import companies from CSV file using unified codes with smart comparison"""
@@ -280,12 +270,17 @@ def import_companies_from_csv(csv_file_path):
                 
                 if existing_company:
                     # Smart comparison and update
-                    changes_made, updated_fields = compare_and_update_company_data(existing_company, company_data)
+                    changed, updated_fields, field_changes = compare_and_update_company(existing_company, company_data)
                     
-                    if changes_made:
-                        session.merge(existing_company)
+                    if changed:
+                        session.add(existing_company)
                         quality_metrics['companies_updated'] += 1
                         logger.info(f"Updated existing company: {company_data['name']} - changed fields: {', '.join(updated_fields)}")
+                        for field, old, new in field_changes:
+                            logger.info(f"    {field}: '{old}' -> '{new}'")
+                        print(f"{i}/{len(valid_companies)}: Updated {company_data['name']} - fields changed: {', '.join(updated_fields)}")
+                        for field, old, new in field_changes:
+                            print(f"    {field}: '{old}' -> '{new}'")
                     else:
                         quality_metrics['companies_no_changes'] += 1
                         logger.info(f"No changes for existing company: {company_data['name']} - data is current")
@@ -369,6 +364,8 @@ def import_companies_from_csv(csv_file_path):
         session.close()
 
 if __name__ == '__main__':
+    import sys
+    
     if len(sys.argv) != 2:
         print("Usage: python3 1.1_import_screener_companies.py <csv_file_path>")
         print("Example: python3 1.1_import_screener_companies.py data_ingestion/screener_export_20250704.csv")

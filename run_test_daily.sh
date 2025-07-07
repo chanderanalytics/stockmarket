@@ -25,24 +25,22 @@ echo "Index Prices table row count before run: $index_prices_before" | tee -a "$
 echo "Starting TEST daily updates workflow with 10 companies..." | tee -a "$log_file"
 
 # 1. Import companies from CSV (in case new companies added)
-echo "Starting 1.1_import_screener_companies.py (TEST - first 10 companies) at $(date)" | tee -a "$log_file"
+echo "Starting 1.1_import_screener_companies_daily.py (TEST - first 10 companies) at $(date)" | tee -a "$log_file"
 start1=$(date +%s)
-# Create a temporary CSV with only first 10 companies
-head -n 11 data_ingestion/screener_export_20250704.csv > data_ingestion/test_screener_10.csv
-python3 data_ingestion/1.1_import_screener_companies.py data_ingestion/test_screener_10.csv | tee -a "$log_file"
-echo "1.1_import_screener_companies.py completed successfully at $(date)" | tee -a "$log_file"
+python3 data_ingestion/1.1_import_screener_companies_daily.py data_ingestion/screener_export_20250704.csv --limit 10 | tee -a "$log_file"
+echo "1.1_import_screener_companies_daily.py completed successfully at $(date)" | tee -a "$log_file"
 end1=$(date +%s)
 dur1=$(( (end1 - start1) / 60 ))
-echo "1.1_import_screener_companies.py duration: $dur1 minutes" | tee -a "$log_file"
+echo "1.1_import_screener_companies_daily.py duration: $dur1 minutes" | tee -a "$log_file"
 
 # 2. Fetch yfinance info (update existing companies)
-echo "Starting 1.2_add_yf_in_companies.py (TEST - 10 companies) at $(date)" | tee -a "$log_file"
+echo "Starting 1.2_add_yf_in_companies_daily.py (TEST - 10 companies) at $(date)" | tee -a "$log_file"
 start2=$(date +%s)
-python3 data_ingestion/1.2_add_yf_in_companies.py --limit 10 | tee -a "$log_file"
-echo "1.2_add_yf_in_companies.py completed successfully at $(date)" | tee -a "$log_file"
+python3 data_ingestion/1.2_add_yf_in_companies_daily.py --limit 10 | tee -a "$log_file"
+echo "1.2_add_yf_in_companies_daily.py completed successfully at $(date)" | tee -a "$log_file"
 end2=$(date +%s)
 dur2=$(( (end2 - start2) / 60 ))
-echo "1.2_add_yf_in_companies.py duration: $dur2 minutes" | tee -a "$log_file"
+echo "1.2_add_yf_in_companies_daily.py duration: $dur2 minutes" | tee -a "$log_file"
 
 # 3. Backup companies after daily updates
 echo "Starting 1.4_daily_backup_companies.py (TEST) at $(date)" | tee -a "$log_file"
@@ -140,7 +138,4 @@ echo "✓ 4.4 Backup indices after daily updates (TEST) ($dur9 min)" | tee -a "$
 echo "" | tee -a "$log_file"
 echo "🧪 TEST DAILY RUN COMPLETED SUCCESSFULLY!" | tee -a "$log_file"
 echo "📊 Check the logs to verify everything worked correctly." | tee -a "$log_file"
-echo "🚀 If everything looks good, you can run the full daily updates with: ./run_daily_updates.sh" | tee -a "$log_file"
-
-# Clean up temporary test file
-rm -f data_ingestion/test_screener_10.csv 
+echo "🚀 If everything looks good, you can run the full daily updates with: ./run_daily_updates.sh" | tee -a "$log_file" 
