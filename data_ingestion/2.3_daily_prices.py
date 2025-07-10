@@ -18,6 +18,7 @@ from datetime import datetime
 import time
 import math
 import logging
+import re
 
 # Set up logging
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -71,12 +72,29 @@ def get_yfinance_ticker(company):
         return f"{bse_code_str}.BO", 'BSE'
     return None, None
 
+def get_today_csv_file():
+    today_str = datetime.now().strftime('%Y%m%d')
+    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    if os.path.exists(expected_file):
+        return expected_file
+    else:
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+
+csv_file = get_today_csv_file()
+
 def fetch_latest_prices(limit=None, batch_size=25):
     """
     Fetch latest prices for all companies.
     Uses smart comparison to only insert new price records.
     """
     session = Session()
+    
+    # Extract file_date from csv_file
+    match = re.search(r'(\d{8})', csv_file)
+    if match:
+        file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+    else:
+        raise ValueError("No date found in CSV filename!")
     
     # Initialize quality metrics
     quality_metrics = {
@@ -137,7 +155,7 @@ def fetch_latest_prices(limit=None, batch_size=25):
         for attempt in range(3):
             try:
                 quality_metrics['api_calls'] += 1
-                df = yf.download(tickers, period="3d", interval="1d", group_by='ticker', auto_adjust=False, progress=False)
+                df = yf.download(tickers, period="1d", interval="1d", group_by='ticker', auto_adjust=False, progress=False)
                 if not df.empty:
                     found = True
                 break
@@ -206,6 +224,7 @@ def fetch_latest_prices(limit=None, batch_size=25):
                 price.close = get_scalar(row['Close'])
                 price.volume = get_scalar(row['Volume'])
                 price.adj_close = get_scalar(row['Adj Close']) if 'Adj Close' in row else None
+                price.last_modified = file_date
                 
                 # Data quality check: Validate price data
                 if price.close is not None and price.close <= 0:
@@ -268,61 +287,34 @@ def fetch_latest_prices(limit=None, batch_size=25):
     quality_metrics['duration'] = quality_metrics['end_time'] - quality_metrics['start_time']
     
     # Log comprehensive data quality summary
-    logger.info("=== DAILY PRICES DATA QUALITY SUMMARY ===")
-    logger.info(f"Mode: smart comparison")
+    logger.info("=== PRICES IMPORT DATA QUALITY SUMMARY ===")
+    logger.info(f"Mode: daily update")
     logger.info(f"Total companies: {quality_metrics['total_companies']}")
     logger.info(f"Companies with valid codes: {quality_metrics['companies_with_valid_codes']}")
     logger.info(f"Companies processed: {quality_metrics['companies_processed']}")
     logger.info(f"Companies with no changes: {quality_metrics['companies_no_changes']}")
     logger.info(f"Companies with no yfinance data: {quality_metrics['companies_no_yf_data']}")
     logger.info(f"Companies with API errors: {quality_metrics['companies_api_errors']}")
-    logger.info(f"Total price records fetched: {quality_metrics['total_price_records']}")
-    logger.info(f"New price records inserted: {quality_metrics['new_price_records']}")
-    logger.info(f"Duplicate price records (skipped): {quality_metrics['duplicate_price_records']}")
+    logger.info(f"Total price records: {quality_metrics['total_price_records']}")
+    logger.info(f"New price records: {quality_metrics['new_price_records']}")
+    logger.info(f"Duplicate price records: {quality_metrics['duplicate_price_records']}")
     logger.info(f"Invalid price records: {quality_metrics['invalid_price_records']}")
-    logger.info(f"Missing Open prices: {quality_metrics['missing_open']}")
-    logger.info(f"Missing High prices: {quality_metrics['missing_high']}")
-    logger.info(f"Missing Low prices: {quality_metrics['missing_low']}")
-    logger.info(f"Missing Close prices: {quality_metrics['missing_close']}")
-    logger.info(f"Missing Volume data: {quality_metrics['missing_volume']}")
     logger.info(f"API calls made: {quality_metrics['api_calls']}")
     logger.info(f"API errors: {quality_metrics['api_errors']}")
     logger.info(f"Database errors: {quality_metrics['database_errors']}")
     logger.info(f"Processing duration: {quality_metrics['duration']}")
-    logger.info(f"Success rate: {quality_metrics['companies_processed'] / quality_metrics['companies_with_valid_codes'] * 100:.2f}%")
     
-    print(f"\nDaily Prices Summary:")
-    print(f"- Mode: smart comparison")
+    print(f"\nPrices Import Summary:")
+    print(f"- Mode: daily update")
     print(f"- Total companies: {quality_metrics['total_companies']}")
     print(f"- Companies processed: {quality_metrics['companies_processed']}")
-    print(f"- No changes needed: {quality_metrics['companies_no_changes']}")
     print(f"- New price records: {quality_metrics['new_price_records']}")
-    print(f"- Success rate: {quality_metrics['companies_processed'] / quality_metrics['companies_with_valid_codes'] * 100:.2f}%")
+    print(f"- Duplicate price records: {quality_metrics['duplicate_price_records']}")
+    print(f"- Invalid price records: {quality_metrics['invalid_price_records']}")
+    print(f"- Errors: {quality_metrics['companies_api_errors']}")
+    print(f"- Duration: {quality_metrics['duration']}")
     
-    # Analyze prices data quality
-    print("Analyzing prices data quality...")
-    logger.info("=== PRICES DATA QUALITY ANALYSIS ===")
-    prices_quality = analyze_prices_data_quality(session)
-    
-    # Log prices data quality report
-    logger.info(f"Total price records in database: {prices_quality['total_prices']}")
-    logger.info("Prices column-level data quality:")
-    for column, stats in prices_quality['columns'].items():
-        logger.info(f"  {column}:")
-        logger.info(f"    - Data type: {stats['data_type']}")
-        logger.info(f"    - Non-null values: {stats['non_null_values']}/{stats['total_values']} ({stats['non_null_percentage']:.2f}%)")
-        logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
-        logger.info(f"    - Unique values: {stats['unique_values']}")
-    
-    # Print summary to console
-    print(f"\nPrices Data Quality Summary:")
-    print(f"Total price records: {prices_quality['total_prices']}")
-    print(f"Total columns: {len(prices_quality['columns'])}")
-    print(f"\nPrices column completion rates:")
-    for column, stats in prices_quality['columns'].items():
-        print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
-    
-    logger.info(f"Daily prices completed: {quality_metrics['companies_processed']} processed, {quality_metrics['new_price_records']} new records, {quality_metrics['companies_no_changes']} no changes, {quality_metrics['companies_api_errors']} errors")
+    logger.info(f"Prices import completed: {quality_metrics['companies_processed']} processed, {quality_metrics['new_price_records']} new, {quality_metrics['duplicate_price_records']} duplicate, {quality_metrics['invalid_price_records']} invalid, {quality_metrics['companies_api_errors']} errors")
     
     session.close()
 

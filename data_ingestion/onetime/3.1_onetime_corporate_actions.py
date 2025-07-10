@@ -17,6 +17,7 @@ from datetime import datetime
 import math
 import logging
 import argparse
+import re
 
 # Set up logging
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -334,6 +335,16 @@ def analyze_corporate_actions_data_quality(session):
         }
     
     return quality_report
+
+def get_today_csv_file():
+    today_str = datetime.now().strftime('%Y%m%d')
+    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    if os.path.exists(expected_file):
+        return expected_file
+    else:
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+
+csv_file = get_today_csv_file()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fetch historical corporate actions for companies.')

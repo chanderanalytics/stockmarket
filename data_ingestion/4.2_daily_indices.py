@@ -19,6 +19,8 @@ from sqlalchemy.orm import sessionmaker
 from backend.models import Base, IndexPrice, Index
 from datetime import datetime, timedelta
 import logging
+import re
+import argparse
 
 # Set up logging
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -117,12 +119,24 @@ def get_scalar(val):
 
     return val
 
+def get_today_csv_file():
+    today_str = datetime.now().strftime('%Y%m%d')
+    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    if os.path.exists(expected_file):
+        return expected_file
+    else:
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+
+csv_file = get_today_csv_file()
+
 def fetch_and_store_latest_indices_prices():
-    """
-    Fetch latest prices for major indices.
-    Uses simple pattern from one-time script.
-    """
     session = Session()
+    # Extract file_date from csv_file
+    match = re.search(r'(\d{8})', csv_file)
+    if match:
+        file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+    else:
+        raise ValueError("No date found in CSV filename!")
     
     # Initialize quality metrics
     quality_metrics = {
@@ -153,7 +167,7 @@ def fetch_and_store_latest_indices_prices():
         logger.info(f"Fetching latest data for {idx['name']} ({idx['ticker']})...")
         try:
             quality_metrics['api_calls'] += 1
-            df = yf.download(idx['ticker'], period="3d", interval="1d", progress=False, auto_adjust=False)
+            df = yf.download(idx['ticker'], period="1d", interval="1d", progress=False, auto_adjust=False)
             
             if df is None or df.empty:
                 logger.warning(f"No data for {idx['name']} ({idx['ticker']})")
@@ -173,42 +187,39 @@ def fetch_and_store_latest_indices_prices():
             index_price_count = 0
             index_invalid_prices = 0
             
+            # Only process the row matching file_date
             for date, row in df.iterrows():
+                if date.date() != file_date:
+                    continue
                 key = (idx['name'], idx['ticker'], date.date())
                 all_keys.add(key)
                 index_price_count += 1
-                
                 # Data quality checks for missing data
                 try:
                     if 'Open' not in row or pd.isna(row['Open']).any():
                         quality_metrics['missing_open'] += 1
                 except:
                     quality_metrics['missing_open'] += 1
-                    
                 try:
                     if 'High' not in row or pd.isna(row['High']).any():
                         quality_metrics['missing_high'] += 1
                 except:
                     quality_metrics['missing_high'] += 1
-                    
                 try:
                     if 'Low' not in row or pd.isna(row['Low']).any():
                         quality_metrics['missing_low'] += 1
                 except:
                     quality_metrics['missing_low'] += 1
-                    
                 try:
                     if 'Close' not in row or pd.isna(row['Close']).any():
                         quality_metrics['missing_close'] += 1
                 except:
                     quality_metrics['missing_close'] += 1
-                    
                 try:
                     if 'Volume' not in row or pd.isna(row['Volume']).any():
                         quality_metrics['missing_volume'] += 1
                 except:
                     quality_metrics['missing_volume'] += 1
-                
                 price = IndexPrice(
                     name=idx['name'],
                     ticker=idx['ticker'],
@@ -219,18 +230,16 @@ def fetch_and_store_latest_indices_prices():
                     high=get_scalar(row['High']) if 'High' in row else None,
                     low=get_scalar(row['Low']) if 'Low' in row else None,
                     close=get_scalar(row['Close']) if 'Close' in row else None,
-                    volume=get_scalar(row['Volume']) if 'Volume' in row else None
+                    volume=get_scalar(row['Volume']) if 'Volume' in row else None,
+                    last_modified=file_date
                 )
-                
                 # Data quality check: Validate price data
                 if price.close is not None and price.close <= 0:
                     index_invalid_prices += 1
                     logger.warning(f"Invalid close price for {idx['name']} on {date.date()}: {price.close}")
-                
                 if price.high is not None and price.low is not None and price.high < price.low:
                     index_invalid_prices += 1
                     logger.warning(f"High price less than low price for {idx['name']} on {date.date()}: High={price.high}, Low={price.low}")
-                
                 price_objects.append(price)
             
             quality_metrics['total_price_records'] += index_price_count
