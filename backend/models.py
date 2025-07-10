@@ -135,6 +135,7 @@ class Company(Base):
     enterpriseToRevenue_yf = Column(Numeric, nullable=True)
     enterpriseToEbitda_yf = Column(Numeric, nullable=True)
     exchange = Column(String, nullable=True)  # Store preferred exchange (NSE or BSE)
+    last_modified = Column(Date, nullable=True)
 
 # Add partial unique indexes for nse_code and bse_code (PostgreSQL only)
 Index('unique_nse_code', Company.nse_code, unique=True, postgresql_where=Company.nse_code != None)
@@ -168,6 +169,7 @@ class Price(Base):
     close = Column(Numeric)
     volume = Column(BigInteger)
     adj_close = Column(Numeric, nullable=True)
+    last_modified = Column(Date, nullable=True)
 
 # Add index for fast lookups and upserts by (company_id, date)
 Index('idx_prices_company_id_date', Price.company_id, Price.date)
@@ -186,9 +188,146 @@ class CorporateAction(Base):
     date = Column(Date)
     type = Column(String)
     details = Column(Text)
+    last_modified = Column(Date, nullable=True)
 
 # Add index for unified code approach
 Index('idx_corporate_actions_company_code_date', CorporateAction.company_code, CorporateAction.date)
+Index('idx_corporate_actions_company_code_date_type', CorporateAction.company_code, CorporateAction.date, CorporateAction.type)
+
+class FinancialStatement(Base):
+    """
+    Financial statements data (income statement, balance sheet, cash flow).
+    """
+    __tablename__ = 'financial_statements'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'))
+    company_code = Column(String, nullable=True)  # Unified code (NSE or BSE code)
+    company_name = Column(String, nullable=True)  # Store company name for convenience
+    date = Column(Date)  # Statement date
+    statement_type = Column(String)  # 'income', 'balance', 'cashflow'
+    period = Column(String, nullable=True)  # 'annual' or 'quarterly'
+    year = Column(Integer, nullable=True)
+    quarter = Column(Integer, nullable=True)  # 1, 2, 3, 4 for quarterly
+    # Income Statement fields
+    total_revenue = Column(Numeric, nullable=True)
+    gross_profit = Column(Numeric, nullable=True)
+    operating_income = Column(Numeric, nullable=True)
+    net_income = Column(Numeric, nullable=True)
+    eps = Column(Numeric, nullable=True)
+    # Balance Sheet fields
+    total_assets = Column(Numeric, nullable=True)
+    total_liabilities = Column(Numeric, nullable=True)
+    total_equity = Column(Numeric, nullable=True)
+    cash_and_equivalents = Column(Numeric, nullable=True)
+    total_debt = Column(Numeric, nullable=True)
+    # Cash Flow fields
+    operating_cash_flow = Column(Numeric, nullable=True)
+    investing_cash_flow = Column(Numeric, nullable=True)
+    financing_cash_flow = Column(Numeric, nullable=True)
+    free_cash_flow = Column(Numeric, nullable=True)
+    last_modified = Column(Date, nullable=True)
+
+# Add indexes for new tables
+Index('idx_financial_statements_company_code_date', FinancialStatement.company_code, FinancialStatement.date)
+Index('idx_financial_statements_company_code_type', FinancialStatement.company_code, FinancialStatement.statement_type)
+
+class AnalystRecommendation(Base):
+    """
+    Analyst recommendations and ratings.
+    """
+    __tablename__ = 'analyst_recommendations'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'))
+    company_code = Column(String, nullable=True)  # Unified code (NSE or BSE code)
+    company_name = Column(String, nullable=True)  # Store company name for convenience
+    date = Column(Date)  # Recommendation date
+    firm = Column(String, nullable=True)  # Analyst firm name
+    analyst = Column(String, nullable=True)  # Analyst name
+    action = Column(String, nullable=True)  # 'upgrade', 'downgrade', 'initiate', 'maintain'
+    from_rating = Column(String, nullable=True)  # Previous rating
+    to_rating = Column(String, nullable=True)  # New rating
+    price_target = Column(Numeric, nullable=True)  # Price target
+    price_target_currency = Column(String, nullable=True)
+    recommendation = Column(String, nullable=True)  # 'buy', 'sell', 'hold', 'strong_buy', 'strong_sell'
+    last_modified = Column(Date, nullable=True)
+
+# Add indexes for new tables
+Index('idx_analyst_recommendations_company_code_date', AnalystRecommendation.company_code, AnalystRecommendation.date)
+Index('idx_analyst_recommendations_company_code_firm', AnalystRecommendation.company_code, AnalystRecommendation.firm)
+
+class MajorHolder(Base):
+    """
+    Major shareholders/holders data.
+    """
+    __tablename__ = 'major_holders'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'))
+    company_code = Column(String, nullable=True)  # Unified code (NSE or BSE code)
+    company_name = Column(String, nullable=True)  # Store company name for convenience
+    date = Column(Date)  # Data date
+    holder_name = Column(String, nullable=True)  # Holder name
+    holder_type = Column(String, nullable=True)  # 'individual', 'institution', 'promoter', 'fii', 'dii'
+    shares_held = Column(BigInteger, nullable=True)  # Number of shares held
+    percentage_held = Column(Numeric, nullable=True)  # Percentage of total shares
+    value = Column(Numeric, nullable=True)  # Value of holdings
+    currency = Column(String, nullable=True)
+    last_modified = Column(Date, nullable=True)
+
+# Add indexes for new tables
+Index('idx_major_holders_company_code_date', MajorHolder.company_code, MajorHolder.date)
+Index('idx_major_holders_company_code_holder', MajorHolder.company_code, MajorHolder.holder_name)
+
+class InstitutionalHolder(Base):
+    """
+    Institutional holders data.
+    """
+    __tablename__ = 'institutional_holders'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'))
+    company_code = Column(String, nullable=True)  # Unified code (NSE or BSE code)
+    company_name = Column(String, nullable=True)  # Store company name for convenience
+    date = Column(Date)  # Data date
+    institution_name = Column(String, nullable=True)  # Institution name
+    institution_type = Column(String, nullable=True)  # 'mutual_fund', 'insurance', 'pension_fund', 'hedge_fund', etc.
+    shares_held = Column(BigInteger, nullable=True)  # Number of shares held
+    percentage_held = Column(Numeric, nullable=True)  # Percentage of total shares
+    value = Column(Numeric, nullable=True)  # Value of holdings
+    currency = Column(String, nullable=True)
+    last_modified = Column(Date, nullable=True)
+
+# Add indexes for new tables
+Index('idx_institutional_holders_company_code_date', InstitutionalHolder.company_code, InstitutionalHolder.date)
+Index('idx_institutional_holders_company_code_institution', InstitutionalHolder.company_code, InstitutionalHolder.institution_name)
+
+class OptionsData(Base):
+    """
+    Options data for companies.
+    """
+    __tablename__ = 'options_data'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'))
+    company_code = Column(String, nullable=True)  # Unified code (NSE or BSE code)
+    company_name = Column(String, nullable=True)  # Store company name for convenience
+    date = Column(Date)  # Data date
+    expiration_date = Column(Date, nullable=True)  # Option expiration date
+    option_type = Column(String, nullable=True)  # 'call' or 'put'
+    strike_price = Column(Numeric, nullable=True)  # Strike price
+    last_price = Column(Numeric, nullable=True)  # Last traded price
+    bid = Column(Numeric, nullable=True)  # Bid price
+    ask = Column(Numeric, nullable=True)  # Ask price
+    volume = Column(BigInteger, nullable=True)  # Trading volume
+    open_interest = Column(BigInteger, nullable=True)  # Open interest
+    implied_volatility = Column(Numeric, nullable=True)  # Implied volatility
+    delta = Column(Numeric, nullable=True)  # Delta
+    gamma = Column(Numeric, nullable=True)  # Gamma
+    theta = Column(Numeric, nullable=True)  # Theta
+    vega = Column(Numeric, nullable=True)  # Vega
+    last_modified = Column(Date, nullable=True)
+
+# Add indexes for new tables
+Index('idx_options_data_company_code_date', OptionsData.company_code, OptionsData.date)
+Index('idx_options_data_company_code_expiration', OptionsData.company_code, OptionsData.expiration_date)
+Index('idx_options_data_company_code_strike', OptionsData.company_code, OptionsData.strike_price)
 
 class ShareholdingPattern(Base):
     """
@@ -210,6 +349,7 @@ class Index(Base):
     ticker = Column(String, nullable=False, unique=True)
     region = Column(String, nullable=True)
     description = Column(Text, nullable=True)
+    last_modified = Column(Date, nullable=True)
 
 class IndexPrice(Base):
     __tablename__ = 'index_prices'
@@ -223,4 +363,5 @@ class IndexPrice(Base):
     high = Column(Numeric, nullable=True)
     low = Column(Numeric, nullable=True)
     close = Column(Numeric, nullable=True)
-    volume = Column(BigInteger, nullable=True) 
+    volume = Column(BigInteger, nullable=True)
+    last_modified = Column(Date, nullable=True) 

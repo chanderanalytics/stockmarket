@@ -1,14 +1,16 @@
 """
 Script to fetch and update yfinance information for companies - DAILY VERSION.
 
-This script fetches additional company information from yfinance and updates
+This script fetches the latest company information from yfinance and updates
 the companies table with this data using unified codes.
-Optimized for daily runs - only fetches last 3 days of yfinance data.
-Processes all companies but only updates with recent data.
+Optimized for daily runs: always fetches the most recent info snapshot for all companies.
+Processes all companies but only updates those whose data has changed.
 """
 
 import sys
 import os
+import re
+import time
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import yfinance as yf
 from sqlalchemy import create_engine, or_, and_
@@ -111,6 +113,16 @@ def has_yfinance_data(company):
             return True
     return False
 
+def normalize_value(val):
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    sval = str(val).strip().lower()
+    if sval in ('', 'nan', 'none'):
+        return None
+    return sval
+
 def compare_and_update_yfinance_data(company, info):
     """Compare existing yfinance data with fresh data and update only changed values"""
     changes_made = False
@@ -167,7 +179,7 @@ def compare_and_update_yfinance_data(company, info):
             current_value = getattr(company, field_name)
             
             # Compare values (handle None cases)
-            if current_value != new_value:
+            if normalize_value(current_value) != normalize_value(new_value):
                 setattr(company, field_name, new_value)
                 changes_made = True
                 updated_fields.append(field_name)
@@ -223,18 +235,18 @@ def fetch_and_update_yfinance_info(limit=None):
         
         print(f"Found {len(companies)} total companies")
         print(f"Companies with valid codes: {total}")
-        print(f"Fetching last 3 days of yfinance data for all companies")
+        print(f"Fetching latest yfinance info for all companies")
         logger.info(f"Found {len(companies)} total companies")
         logger.info(f"Companies with valid codes: {total}")
-        logger.info(f"Fetching last 3 days of yfinance data for all companies")
+        logger.info(f"Fetching latest yfinance info for all companies")
         
         if total == 0:
             print("No companies with valid codes found. Daily job complete!")
             logger.info("No companies with valid codes found. Daily job complete!")
             return
         
-        print(f"Fetching yfinance info for {total} companies (last 3 days data)" + (f" (limited to {limit})" if limit else "") + "...")
-        logger.info(f"Fetching yfinance info for {total} companies (last 3 days data)" + (f" (limited to {limit})" if limit else ""))
+        print(f"Fetching yfinance info for {total} companies" + (f" (limited to {limit})" if limit else "") + "...")
+        logger.info(f"Fetching yfinance info for {total} companies" + (f" (limited to {limit})" if limit else ""))
         
         for i, company in enumerate(companies_with_codes, 1):
             try:
@@ -248,9 +260,8 @@ def fetch_and_update_yfinance_info(limit=None):
                 
                 # Get yfinance ticker object and fetch last 3 days of data
                 yf_ticker = yf.Ticker(ticker)
-                
-                # Fetch last 3 days of data to get most recent info
-                # This ensures we get the most up-to-date company information
+                # Add a small delay to avoid rate limiting
+                time.sleep(0.5)
                 info = yf_ticker.info
                 
                 if not info:
@@ -261,6 +272,13 @@ def fetch_and_update_yfinance_info(limit=None):
                 changes_made, updated_fields = compare_and_update_yfinance_data(company, info)
                 
                 if changes_made:
+                    # Extract file_date from csv_file
+                    match = re.search(r'(\d{8})', csv_file)
+                    if match:
+                        file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+                    else:
+                        raise ValueError("No date found in CSV filename!")
+                    company.last_modified = file_date
                     session.merge(company)
                     quality_metrics['companies_updated'] += 1
                     logger.info(f"Updated {company.name} ({ticker}) - changed fields: {', '.join(updated_fields)}")
@@ -294,9 +312,8 @@ def fetch_and_update_yfinance_info(limit=None):
         quality_metrics['duration'] = quality_metrics['end_time'] - quality_metrics['start_time']
         
         # Log comprehensive data quality summary
-        logger.info("=== DAILY YFINANCE UPDATE SUMMARY ===")
-        logger.info(f"Mode: daily update (last 3 days data)")
-        logger.info(f"Data period: {quality_metrics['data_period']}")
+        logger.info("=== YFINANCE DATA QUALITY SUMMARY ===")
+        logger.info(f"Mode: daily update")
         logger.info(f"Total companies: {quality_metrics['total_companies']}")
         logger.info(f"Companies with valid codes: {quality_metrics['companies_with_valid_codes']}")
         logger.info(f"Companies processed: {quality_metrics['companies_processed']}")
@@ -306,18 +323,39 @@ def fetch_and_update_yfinance_info(limit=None):
         logger.info(f"API calls made: {quality_metrics['api_calls']}")
         logger.info(f"API errors: {quality_metrics['api_errors']}")
         logger.info(f"Processing duration: {quality_metrics['duration']}")
-        
-        print(f"\nDaily YFinance Update Summary:")
-        print(f"- Mode: daily update (last 3 days data)")
-        print(f"- Data period: {quality_metrics['data_period']}")
+        logger.info(f"Success rate: {quality_metrics['companies_updated'] / quality_metrics['companies_with_valid_codes'] * 100:.2f}%")
+
+        print(f"\nYFinance Info Update Summary:")
+        print(f"- Mode: daily update")
         print(f"- Total companies: {quality_metrics['total_companies']}")
-        print(f"- Companies with valid codes: {quality_metrics['companies_with_valid_codes']}")
         print(f"- Successfully updated: {quality_metrics['companies_updated']}")
         print(f"- No changes needed: {quality_metrics['companies_no_changes']}")
         print(f"- Errors: {quality_metrics['companies_api_errors']}")
-        print(f"- Duration: {quality_metrics['duration']}")
-        
-        logger.info(f"Daily yfinance update completed: {quality_metrics['companies_updated']} updated, {quality_metrics['companies_no_changes']} no changes, {quality_metrics['companies_api_errors']} errors")
+        print(f"- Success rate: {quality_metrics['companies_updated'] / quality_metrics['companies_with_valid_codes'] * 100:.2f}%")
+
+        # Analyze yfinance data quality
+        print("Analyzing yfinance data quality...")
+        logger.info("=== YFINANCE DATA QUALITY ANALYSIS ===")
+        yf_quality = analyze_yfinance_data_quality(session)
+
+        # Log yfinance data quality report
+        logger.info(f"Total companies in database: {yf_quality['total_companies']}")
+        logger.info("YFinance column-level data quality:")
+        for column, stats in yf_quality['yfinance_columns'].items():
+            logger.info(f"  {column}:")
+            logger.info(f"    - Non-null values: {stats['non_null_values']}/{stats['total_values']} ({stats['non_null_percentage']:.2f}%)")
+            logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
+            logger.info(f"    - Unique values: {stats['unique_values']}")
+
+        # Print summary to console
+        print(f"\nYFinance Data Quality Summary:")
+        print(f"Total companies: {yf_quality['total_companies']}")
+        print(f"YFinance columns analyzed: {len(yf_quality['yfinance_columns'])}")
+        print(f"\nYFinance column completion rates:")
+        for column, stats in yf_quality['yfinance_columns'].items():
+            print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
+
+        logger.info(f"YFinance info update completed: {quality_metrics['companies_updated']} updated, {quality_metrics['companies_no_changes']} no changes, {quality_metrics['companies_api_errors']} errors")
         
     except Exception as e:
         quality_metrics['database_errors'] += 1
@@ -327,9 +365,21 @@ def fetch_and_update_yfinance_info(limit=None):
     finally:
         session.close()
 
+def get_today_csv_file():
+    today_str = datetime.now().strftime('%Y%m%d')
+    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    if os.path.exists(expected_file):
+        return expected_file
+    else:
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+
+csv_file = get_today_csv_file()
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Fetch yfinance information for companies (daily version - last 3 days data).')
+    parser = argparse.ArgumentParser(description='Fetch yfinance information for companies (daily version, latest info only).')
     parser.add_argument('--limit', type=int, help='Limit number of companies to process (for testing)')
     args = parser.parse_args()
 
-    fetch_and_update_yfinance_info(limit=args.limit) 
+    fetch_and_update_yfinance_info(limit=args.limit)
+
+# Note: For further speedup, consider parallelizing yfinance API calls using threading or multiprocessing, but be mindful of API rate limits. 

@@ -18,6 +18,8 @@ from datetime import datetime
 import time
 import math
 import logging
+import re
+import glob
 
 DATABASE_URL = 'postgresql://stockuser:stockpass@localhost:5432/stockdb'
 engine = create_engine(DATABASE_URL)
@@ -165,6 +167,13 @@ def fetch_and_store_prices(limit=None, batch_size=25):
             company_price_count = 0
             company_invalid_prices = 0
             
+            # Assume csv_file is passed or set at the top
+            match = re.search(r'(\d{8})', csv_file)
+            if match:
+                file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+            else:
+                raise ValueError("No date found in CSV filename!")
+            
             for date, row in company_df.iterrows():
                 key = (company_code, date.date())
                 all_keys.add(key)
@@ -187,6 +196,7 @@ def fetch_and_store_prices(limit=None, batch_size=25):
                 price = Price(company_code=company_code, date=date.date())
                 price.company_name = company.name
                 price.company_id = company.id  # Keep the foreign key for compatibility
+                price.last_modified = file_date
                 
                 price.open = get_scalar(row['Open']) if 'Open' in row else None
                 price.high = get_scalar(row['High']) if 'High' in row else None
@@ -345,6 +355,16 @@ def analyze_prices_data_quality(session):
         }
     
     return quality_report
+
+def get_today_csv_file():
+    today_str = datetime.now().strftime('%Y%m%d')
+    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    if os.path.exists(expected_file):
+        return expected_file
+    else:
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+
+csv_file = get_today_csv_file()
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'fetch':

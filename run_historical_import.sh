@@ -34,9 +34,18 @@ fi
 echo "Starting full historical import workflow..." | tee -a "$log_file"
 
 # 1. Import companies from CSV
+# Dynamically set today's CSV file name
+csv_file="data_ingestion/screener_export_$(date +%Y%m%d).csv"
+
+# Check if the file exists
+if [ ! -f "$csv_file" ]; then
+    echo "ERROR: CSV file $csv_file not found!" | tee -a "$log_file"
+    exit 1
+fi
+
 echo "Starting 1.1_import_screener_companies.py at $(date)" | tee -a "$log_file"
 start1=$(date +%s)
-python3 data_ingestion/1.1_import_screener_companies.py data_ingestion/screener_export_20250704.csv | tee -a "$log_file"
+python3 data_ingestion/onetime/1.1_import_screener_companies.py "$csv_file" | tee -a "$log_file"
 echo "1.1_import_screener_companies.py completed successfully at $(date)" | tee -a "$log_file"
 end1=$(date +%s)
 dur1=$(( (end1 - start1) / 60 ))
@@ -45,7 +54,7 @@ echo "1.1_import_screener_companies.py duration: $dur1 minutes" | tee -a "$log_f
 # 2. Fetch yfinance info
 echo "Starting 1.2_add_yf_in_companies.py at $(date)" | tee -a "$log_file"
 start2=$(date +%s)
-python3 data_ingestion/1.2_add_yf_in_companies.py | tee -a "$log_file"
+python3 data_ingestion/onetime/1.2_add_yf_in_companies.py | tee -a "$log_file"
 echo "1.2_add_yf_in_companies.py completed successfully at $(date)" | tee -a "$log_file"
 end2=$(date +%s)
 dur2=$(( (end2 - start2) / 60 ))
@@ -54,7 +63,7 @@ echo "1.2_add_yf_in_companies.py duration: $dur2 minutes" | tee -a "$log_file"
 # 3. Backup companies after yfinance info
 echo "Starting 1.3_onetime_backup_companies.py at $(date)" | tee -a "$log_file"
 start3=$(date +%s)
-python3 data_ingestion/1.3_onetime_backup_companies.py | tee -a "$log_file"
+python3 data_ingestion/onetime/1.3_onetime_backup_companies.py | tee -a "$log_file"
 echo "1.3_onetime_backup_companies.py completed successfully at $(date)" | tee -a "$log_file"
 end3=$(date +%s)
 dur3=$(( (end3 - start3) / 60 ))
@@ -63,7 +72,7 @@ echo "1.3_onetime_backup_companies.py duration: $dur3 minutes" | tee -a "$log_fi
 # 4. Import historical prices
 echo "Starting 2.1_onetime_prices.py at $(date)" | tee -a "$log_file"
 start4=$(date +%s)
-python3 data_ingestion/2.1_onetime_prices.py | tee -a "$log_file"
+python3 data_ingestion/onetime/2.1_onetime_prices.py | tee -a "$log_file"
 echo "2.1_onetime_prices.py completed successfully at $(date)" | tee -a "$log_file"
 end4=$(date +%s)
 dur4=$(( (end4 - start4) / 60 ))
@@ -72,7 +81,7 @@ echo "2.1_onetime_prices.py duration: $dur4 minutes" | tee -a "$log_file"
 # 5. Backup prices
 echo "Starting 2.2_onetime_backup_prices.py at $(date)" | tee -a "$log_file"
 start5=$(date +%s)
-python3 data_ingestion/2.2_onetime_backup_prices.py | tee -a "$log_file"
+python3 data_ingestion/onetime/2.2_onetime_backup_prices.py | tee -a "$log_file"
 echo "2.2_onetime_backup_prices.py completed successfully at $(date)" | tee -a "$log_file"
 end5=$(date +%s)
 dur5=$(( (end5 - start5) / 60 ))
@@ -81,7 +90,7 @@ echo "2.2_onetime_backup_prices.py duration: $dur5 minutes" | tee -a "$log_file"
 # 6. Import historical corporate actions
 echo "Starting 3.1_onetime_corporate_actions.py at $(date)" | tee -a "$log_file"
 start6=$(date +%s)
-python3 data_ingestion/3.1_onetime_corporate_actions.py | tee -a "$log_file"
+python3 data_ingestion/onetime/3.1_onetime_corporate_actions.py | tee -a "$log_file"
 echo "3.1_onetime_corporate_actions.py completed successfully at $(date)" | tee -a "$log_file"
 end6=$(date +%s)
 dur6=$(( (end6 - start6) / 60 ))
@@ -90,7 +99,7 @@ echo "3.1_onetime_corporate_actions.py duration: $dur6 minutes" | tee -a "$log_f
 # 7. Backup corporate actions
 echo "Starting 3.3_onetime_backup_corporate_actions.py at $(date)" | tee -a "$log_file"
 start7=$(date +%s)
-python3 data_ingestion/3.3_onetime_backup_corporate_actions.py | tee -a "$log_file"
+python3 data_ingestion/onetime/3.3_onetime_backup_corporate_actions.py | tee -a "$log_file"
 echo "3.3_onetime_backup_corporate_actions.py completed successfully at $(date)" | tee -a "$log_file"
 end7=$(date +%s)
 dur7=$(( (end7 - start7) / 60 ))
@@ -99,7 +108,7 @@ echo "3.3_onetime_backup_corporate_actions.py duration: $dur7 minutes" | tee -a 
 # 8. Import historical indices
 echo "Starting 4.1_onetime_indices.py at $(date)" | tee -a "$log_file"
 start8=$(date +%s)
-python3 data_ingestion/4.1_onetime_indices.py | tee -a "$log_file"
+python3 data_ingestion/onetime/4.1_onetime_indices.py | tee -a "$log_file"
 echo "4.1_onetime_indices.py completed successfully at $(date)" | tee -a "$log_file"
 end8=$(date +%s)
 dur8=$(( (end8 - start8) / 60 ))
@@ -108,7 +117,7 @@ echo "4.1_onetime_indices.py duration: $dur8 minutes" | tee -a "$log_file"
 # 9. Backup indices
 echo "Starting 4.3_onetime_backup_indices.py at $(date)" | tee -a "$log_file"
 start9=$(date +%s)
-python3 data_ingestion/4.3_onetime_backup_indices.py | tee -a "$log_file"
+python3 data_ingestion/onetime/4.3_onetime_backup_indices.py | tee -a "$log_file"
 echo "4.3_onetime_backup_indices.py completed successfully at $(date)" | tee -a "$log_file"
 end9=$(date +%s)
 dur9=$(( (end9 - start9) / 60 ))

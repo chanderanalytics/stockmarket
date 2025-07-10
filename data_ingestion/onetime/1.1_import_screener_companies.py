@@ -16,6 +16,7 @@ from backend.models import Base, Company
 from datetime import datetime
 import math
 import logging
+import re
 
 # Set up logging for one-time/full runs
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -165,7 +166,7 @@ def analyze_companies_data_quality(session):
         'operatingMargins_yf', 'profitMargins_yf', 'returnOnAssets_yf', 'returnOnEquity_yf',
         'totalRevenue_yf', 'grossProfits_yf', 'freeCashflow_yf', 'operatingCashflow_yf',
         'debtToEquity_yf', 'currentRatio_yf', 'quickRatio_yf', 'shortRatio_yf', 'pegRatio_yf',
-        'enterpriseValue_yf', 'enterpriseToRevenue_yf', 'enterpriseToEbitda_yf'
+        'enterpriseValue_yf', 'enterpriseToRevenue_yf', 'enterpriseToEbitda_yf', 'last_modified'
     ]
     
     for column_name in company_columns:
@@ -230,6 +231,12 @@ def import_companies_from_csv(csv_file_path):
         
         # Clean and validate data
         valid_companies = []
+        match = re.search(r'(\d{8})', csv_file_path)
+        if match:
+            file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+        else:
+            raise ValueError("No date found in CSV filename!")
+        
         for _, row in df.iterrows():
             nse_code = clean_code(row.get('NSE Code', row.get('nse_code')))
             bse_code = clean_code(row.get('BSE Code', row.get('bse_code')))
@@ -245,7 +252,8 @@ def import_companies_from_csv(csv_file_path):
                 'name': row.get('Company Name', row.get('company_name', '')),
                 'nse_code': nse_code,
                 'bse_code': bse_code,
-                'industry': row.get('Industry', row.get('industry', ''))
+                'industry': row.get('Industry', row.get('industry', '')),
+                'last_modified': file_date
             }
             
             valid_companies.append(company_data)
@@ -362,6 +370,16 @@ def import_companies_from_csv(csv_file_path):
         raise
     finally:
         session.close()
+
+def get_today_csv_file():
+    today_str = datetime.now().strftime('%Y%m%d')
+    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    if os.path.exists(expected_file):
+        return expected_file
+    else:
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+
+csv_file = get_today_csv_file()
 
 if __name__ == '__main__':
     import sys

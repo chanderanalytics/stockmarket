@@ -109,6 +109,16 @@ def has_yfinance_data(company):
             return True
     return False
 
+def normalize_value(val):
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    sval = str(val).strip().lower()
+    if sval in ('', 'nan', 'none'):
+        return None
+    return sval
+
 def compare_and_update_yfinance_data(company, info):
     """Compare existing yfinance data with fresh data and update only changed values"""
     changes_made = False
@@ -165,7 +175,7 @@ def compare_and_update_yfinance_data(company, info):
             current_value = getattr(company, field_name)
             
             # Compare values (handle None cases)
-            if current_value != new_value:
+            if normalize_value(current_value) != normalize_value(new_value):
                 setattr(company, field_name, new_value)
                 changes_made = True
                 updated_fields.append(field_name)
@@ -234,6 +244,7 @@ def fetch_and_update_yfinance_info(mode='full'):
                 changes_made, updated_fields = compare_and_update_yfinance_data(company, info)
                 
                 if changes_made:
+                    company.last_modified = datetime.now().date()
                     session.merge(company)
                     quality_metrics['companies_updated'] += 1
                     logger.info(f"Updated {company.name} ({ticker}) - changed fields: {', '.join(updated_fields)}")
