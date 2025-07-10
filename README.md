@@ -59,6 +59,9 @@ This project provides a scalable, modular, and highly automated solution for col
 
 ### High-Level Data Pipeline Flow
 
+<!--
+Note: The 'subgraph' feature in Mermaid diagrams may not render correctly on GitHub. Backup nodes are shown as direct outputs for compatibility.
+-->
 ```mermaid
 flowchart TD
     A[Screener CSV (Companies)] -->|Import/Enrich| B[Company Table]
@@ -69,16 +72,10 @@ flowchart TD
     B -->|Fetch Holders| G[Major/Institutional Holders Tables]
     B -->|Fetch Options| H[Options Data Table]
     I[Indices List] -->|Fetch Index Prices| J[Index Prices Table]
-    subgraph Backup
-        B1[Companies Backup]
-        C1[Prices Backup]
-        D1[Corporate Actions Backup]
-        J1[Index Prices Backup]
-    end
-    B --> B1
-    C --> C1
-    D --> D1
-    J --> J1
+    B --> B1[Companies Backup]
+    C --> C1[Prices Backup]
+    D --> D1[Corporate Actions Backup]
+    J --> J1[Index Prices Backup]
 ```
 *Figure: End-to-end data flow from raw sources to database tables and backups.*
 
