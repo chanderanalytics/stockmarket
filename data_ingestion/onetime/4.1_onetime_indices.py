@@ -10,6 +10,7 @@ from backend.models import Base, IndexPrice, Index
 from datetime import datetime
 import logging
 import numpy as np
+import re
 
 # Database connection string
 DATABASE_URL = 'postgresql://stockuser:stockpass@localhost:5432/stockdb'
@@ -209,6 +210,12 @@ def fetch_and_store_indices_prices():
             index_price_count = 0
             index_invalid_prices = 0
             
+            match = re.search(r'(\d{8})', idx['ticker'])
+            if match:
+                file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+            else:
+                raise ValueError("No date found in ticker!")
+            
             for date, row in df.iterrows():
                 key = (idx['name'], idx['ticker'], date.date())
                 all_keys.add(key)
@@ -255,7 +262,8 @@ def fetch_and_store_indices_prices():
                     high=get_scalar(row['High']) if 'High' in row else None,
                     low=get_scalar(row['Low']) if 'Low' in row else None,
                     close=get_scalar(row['Close']) if 'Close' in row else None,
-                    volume=get_scalar(row['Volume']) if 'Volume' in row else None
+                    volume=get_scalar(row['Volume']) if 'Volume' in row else None,
+                    last_modified=file_date
                 )
                 
                 # Data quality check: Validate price data

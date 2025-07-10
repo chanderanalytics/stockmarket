@@ -61,4 +61,21 @@ temp/
 tmp/
 
 # Test files
-test_screener_*.csv 
+test_screener_*.csv
+
+# Superset
+superset/
+
+# Secrets and config
+*.env.*
+secrets/
+config/
+
+# Ignore all CSV files
+*.csv
+!data/README.md
+
+# Ignore environment variable files
+.env
+.env.*
+env/ 
