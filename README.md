@@ -60,11 +60,11 @@ This project provides a scalable, modular, and highly automated solution for col
 ### High-Level Data Pipeline Flow
 
 <!--
-Note: The 'subgraph' feature in Mermaid diagrams may not render correctly on GitHub. Backup nodes are shown as direct outputs for compatibility.
+Note: Parentheses in node labels can break GitHub's Mermaid rendering. Use dashes or spaces instead.
 -->
 ```mermaid
 flowchart TD
-    A[Screener CSV (Companies)] -->|Import/Enrich| B[Company Table]
+    A[Screener CSV Companies] -->|Import/Enrich| B[Company Table]
     B -->|Fetch Prices| C[Prices Table]
     B -->|Fetch Corporate Actions| D[Corporate Actions Table]
     B -->|Fetch Financials| E[Financial Statements Table]
