@@ -1,0 +1,5 @@
+PGUSER=stockuser
+PGPASSWORD=stockpass
+PGHOST=localhost
+PGPORT=5432
+PGDATABASE=stockdb 
