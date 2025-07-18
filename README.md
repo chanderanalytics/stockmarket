@@ -243,6 +243,50 @@ python3 data_ingestion/4.2_daily_indices.py
 
 ---
 
+## Advanced Analytics & Power BI Integration
+
+This project includes advanced R scripts for generating company-level insights, group metrics, and Power BI-ready outputs.
+
+### Key Features
+- **Group Metrics & Rankings:**
+  - Calculates rankings and group averages for metrics such as return_on_equity, price_to_earning, eps, and debt_to_equity across multiple groupings (sector, industry, etc.).
+  - For any row where the group field is blank or NA, ranking and average columns are set to `9999` for easy identification in Power BI.
+- **Numeric Decile Labeling:**
+  - Market capitalization deciles are labeled as `1` to `10` (not 'Decile 1', 'Decile 2', etc.) for easier numeric analysis.
+- **Power BI-Friendly Outlier Columns:**
+  - Outlier flags for key metrics are exported as `0` (not outlier) and `1` (outlier), with NA values set to `0`.
+- **Timestamped Output Files:**
+  - All output CSVs include a timestamp in the filename to prevent overwrites and aid in version tracking.
+
+### Usage Instructions
+
+1. **Run the R Insights Script:**
+   - The main script is located at `data_ingestion/rscripts/2_companies_insights.R`.
+   - Run it with:
+     ```sh
+     Rscript data_ingestion/rscripts/2_companies_insights.R
+     ```
+   - This will generate a CSV in the `output/` directory, e.g., `ranked_companies_all_groups_YYYYMMDD_HHMMSS.csv`.
+
+2. **What the Output Contains:**
+   - All original company data, plus:
+     - Ranking columns for each metric and group (e.g., `return_on_equity_rank_by_sector_name_bse`)
+     - Group average columns (e.g., `sector_name_bse_avg_return_on_equity`)
+     - Outlier columns (`pe_outlier`, `roe_outlier`, `eps_outlier`, `debt_to_equity_outlier`) as 0/1
+     - Decile column (`mcap_decile`) as 1–10
+     - 9999 in ranking/average columns for rows with blank/NA group fields
+
+3. **Power BI Integration:**
+   - Import the latest output CSV into Power BI.
+   - Use ranking and average columns for advanced visuals, benchmarking, and conditional formatting.
+   - Filter or highlight rows with 9999 to identify companies with missing group data.
+   - Use decile and outlier columns for segmentation and risk analysis.
+
+4. **Customization:**
+   - To add more metrics or groupings, edit the `metrics_to_average`, `metrics_to_rank`, and `ranking_group_fields` variables at the top of the R script.
+
+---
+
 ## Logging & Monitoring
 - **All scripts** log to timestamped files in `log/`
 - Both INFO and ERROR levels are captured
