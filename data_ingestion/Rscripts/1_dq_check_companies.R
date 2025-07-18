@@ -1,12 +1,7 @@
 # dq_check_companies.R
 
-source("data_ingestion/Rscripts/setup_renv.R")
+source("data_ingestion/Rscripts/0_setup_renv.R")
 
-# Load libraries
-library(DBI)
-library(RPostgres)
-library(dplyr)
-library(data.table)
 
 # Load credentials from environment variables
 user <- Sys.getenv("PGUSER")
@@ -37,6 +32,14 @@ setnames(bse_map, old = col_names, new = paste0(gsub(" ", "_", tolower(col_names
 # Print new column names for verification
 print(names(bse_map))
 
+# Ensure both columns are integer type for merge (in both data.tables)
+companies_dt[, bse_code := as.integer(bse_code)]
+bse_map[, security_code_bse := as.integer(security_code_bse)]
+
+# Print types for debugging
+cat("Type of companies_dt$bse_code:", class(companies_dt$bse_code), "\n")
+cat("Type of bse_map$security_code_bse:", class(bse_map$security_code_bse), "\n")
+
 # Merge on bse_code (companies) and security_code_bse (mapping)
 companies_dt <- merge(
   companies_dt,
@@ -54,12 +57,17 @@ dq_summary <- data.frame(
   class = sapply(companies_dt, class),
   stringsAsFactors = FALSE
 )
+# Add percentage missing column
+n_rows <- nrow(companies_dt)
+dq_summary$perc_missing <- ifelse(n_rows > 0, round(100 * dq_summary$n_missing / n_rows, 2), NA)
 
 # Zero/negative values for numeric columns
 numeric_cols <- sapply(companies_dt, is.numeric)
+
 if (any(numeric_cols)) {
   dq_summary$zero_or_negative <- NA
-  dq_summary$zero_or_negative[numeric_cols] <- sapply(companies_dt[, numeric_cols, drop=FALSE], function(x) sum(x <= 0, na.rm=TRUE))
+  numeric_colnames <- names(companies_dt)[numeric_cols]
+  dq_summary$zero_or_negative[numeric_cols] <- sapply(companies_dt[, ..numeric_colnames], function(x) sum(x <= 0, na.rm=TRUE))
 }
 
 # Print DQ summary
