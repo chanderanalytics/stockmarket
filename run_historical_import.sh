@@ -52,13 +52,13 @@ dur1=$(( (end1 - start1) / 60 ))
 echo "1.1_import_screener_companies.py duration: $dur1 minutes" | tee -a "$log_file"
 
 # 2. Fetch yfinance info
-echo "Starting 1.2_add_yf_in_companies.py at $(date)" | tee -a "$log_file"
-start2=$(date +%s)
-python3 data_ingestion/onetime/1.2_add_yf_in_companies.py | tee -a "$log_file"
-echo "1.2_add_yf_in_companies.py completed successfully at $(date)" | tee -a "$log_file"
-end2=$(date +%s)
-dur2=$(( (end2 - start2) / 60 ))
-echo "1.2_add_yf_in_companies.py duration: $dur2 minutes" | tee -a "$log_file"
+# echo "Starting 1.2_add_yf_in_companies.py at $(date)" | tee -a "$log_file"
+# start2=$(date +%s)
+# python3 data_ingestion/onetime/1.2_add_yf_in_companies.py | tee -a "$log_file"
+# echo "1.2_add_yf_in_companies.py completed successfully at $(date)" | tee -a "$log_file"
+# end2=$(date +%s)
+# dur2=$(( (end2 - start2) / 60 ))
+# echo "1.2_add_yf_in_companies.py duration: $dur2 minutes" | tee -a "$log_file"
 
 # 3. Backup companies after yfinance info
 echo "Starting 1.3_onetime_backup_companies.py at $(date)" | tee -a "$log_file"
@@ -138,7 +138,7 @@ echo "Total duration: $(( (end9 - start1) / 60 )) minutes" | tee -a "$log_file"
 
 echo "Summary of steps completed:" | tee -a "$log_file"
 echo "✓ 1.1 Import companies from CSV ($dur1 min)" | tee -a "$log_file"
-echo "✓ 1.2 Add yfinance info ($dur2 min)" | tee -a "$log_file"
+# echo "✓ 1.2 Add yfinance info ($dur2 min)" | tee -a "$log_file"
 echo "✓ 1.3 Backup companies after yfinance info ($dur3 min)" | tee -a "$log_file"
 echo "✓ 2.1 Import historical prices ($dur4 min)" | tee -a "$log_file"
 echo "✓ 2.2 Backup prices table ($dur5 min)" | tee -a "$log_file"

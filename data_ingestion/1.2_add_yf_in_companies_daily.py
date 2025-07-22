@@ -375,11 +375,10 @@ def get_today_csv_file():
 
 csv_file = get_today_csv_file()
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Fetch yfinance information for companies (daily version, latest info only).')
-    parser.add_argument('--limit', type=int, help='Limit number of companies to process (for testing)')
-    args = parser.parse_args()
-
-    fetch_and_update_yfinance_info(limit=args.limit)
+# if __name__ == '__main__':
+#     parser = argparse.ArgumentParser(description='Fetch yfinance information for companies (daily version, latest info only).')
+#     parser.add_argument('--limit', type=int, help='Limit number of companies to process (for testing)')
+#     args = parser.parse_args()
+#     fetch_and_update_yfinance_info(limit=args.limit)
 
 # Note: For further speedup, consider parallelizing yfinance API calls using threading or multiprocessing, but be mindful of API rate limits. 
