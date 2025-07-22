@@ -331,5 +331,5 @@ def fetch_and_update_yfinance_info(mode='full'):
     finally:
         session.close()
 
-if __name__ == '__main__':
-    fetch_and_update_yfinance_info() 
+# if __name__ == '__main__':
+#     fetch_and_update_yfinance_info() 

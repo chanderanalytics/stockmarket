@@ -9,11 +9,7 @@ flog.info("Starting companies insights script")
 # ---
 # Database credentials are now read from environment variables.
 # Set these in your shell, .Renviron, or with the dotenv package:
-# PGUSER=stockuser
-# PGPASSWORD=stockpass
-# PGHOST=localhost
-# PGPORT=5432
-# PGDATABASE=stockdb
+
 # ---
 
 user <- Sys.getenv("PGUSER")
@@ -62,7 +58,7 @@ tryCatch({
   bse_map <- fread("/Users/chanderbhushan/stockmkt/data/BSE_Sector_Mapping.csv")
   # Read only the header (first row) of the CSV to get column names
   col_names <- names(bse_map)
-  print(col_names)
+  # print(col_names) # Commented out
   # Rename columns to have _bse suffix and replace dots with underscores
   setnames(bse_map, old = col_names, new = paste0(gsub(" ", "_", tolower(col_names)), "_bse"))
 
@@ -71,8 +67,8 @@ dt_companies[, bse_code := as.integer(bse_code)]
 bse_map[, security_code_bse := as.integer(security_code_bse)]
 
 # Print types for debugging
-cat("Type of companies_dt$bse_code:", class(dt_companies$bse_code), "\n")
-cat("Type of bse_map$security_code_bse:", class(bse_map$security_code_bse), "\n")
+# cat("Type of companies_dt$bse_code:", class(dt_companies$bse_code), "\n") # Commented out
+# cat("Type of bse_map$security_code_bse:", class(bse_map$security_code_bse), "\n") # Commented out
 
 
 dt_companies <- merge(
@@ -107,13 +103,13 @@ dt_companies <- merge(
   flog.info("Added SEBI-style market cap classification.")
 
   # Decile-based classification (Decile 1 = largest, Decile 10 = smallest)
-  dt_companies[, mcap_decile := cut(
-    rank(-market_capitalization, ties.method = "min"),
-    breaks = quantile(rank(-market_capitalization, ties.method = "min"), probs = seq(0, 1, 0.1), na.rm = TRUE),
-    labels = as.character(1:10),
-    include.lowest = TRUE
-  )]
-  flog.info("Added decile-based market cap classification.")
+  # Remove the dedicated mcap_decile calculation block
+  # dt_companies[, mcap_decile := cut(
+  #   rank(-market_capitalization, ties.method = "min"),
+  #   breaks = quantile(rank(-market_capitalization, ties.method = "min"), probs = seq(0, 1, 0.1), na.rm = TRUE),
+  #   labels = as.character(1:10),
+  #   include.lowest = TRUE
+  # )]
 
   
 
@@ -195,6 +191,277 @@ dt_companies <- merge(
       }
     }
   }
+
+  # ---
+  # Additional scalable, dashboard-ready calculations
+
+  # 1. Peer-relative columns for all metrics
+  for (group_field in ranking_group_fields) {
+    for (metric in metrics_to_average) {
+      avg_col <- paste0(group_field, "_avg_", metric)
+      rel_col <- paste0(metric, "_vs_", group_field, "_avg")
+      if (avg_col %in% names(dt_companies) && metric %in% names(dt_companies)) {
+        dt_companies[, (rel_col) := get(metric) - get(avg_col)]
+      }
+    }
+  }
+
+  # 2. Net profit margin and operating margin
+  if (all(c("profit_after_tax", "sales") %in% names(dt_companies))) {
+    dt_companies[, net_profit_margin := profit_after_tax / sales]
+  }
+  if (all(c("operating_profit", "sales") %in% names(dt_companies))) {
+    dt_companies[, operating_margin := operating_profit / sales]
+  }
+
+  # 3. Earnings yield and PEG ratio
+  if ("price_to_earning" %in% names(dt_companies)) {
+    dt_companies[, earnings_yield := 1 / price_to_earning]
+  }
+  if (all(c("price_to_earning", "eps_growth_3years") %in% names(dt_companies))) {
+    dt_companies[, peg_ratio := price_to_earning / eps_growth_3years]
+  }
+
+  # 4. Leverage and liquidity risk flags
+  if ("debt_to_equity" %in% names(dt_companies)) {
+    dt_companies[, leverage_risk := as.integer(debt_to_equity > 2)]
+  }
+  if ("currentRatio_yf" %in% names(dt_companies)) {
+    dt_companies[, liquidity_risk := as.integer(currentRatio_yf < 1)]
+  }
+
+  # 5. Return vs. peer average
+  for (group_field in ranking_group_fields) {
+    avg_col <- paste0(group_field, "_avg_return_over_1year")
+    if (avg_col %in% names(dt_companies) && "return_over_1year" %in% names(dt_companies)) {
+      rel_col <- paste0("return_over_1year_vs_", group_field, "_avg")
+      dt_companies[, (rel_col) := return_over_1year - get(avg_col)]
+    }
+  }
+
+  # 6. Composite scores
+  # Quality: ROE, net profit margin, sales growth
+  if (all(c("return_on_equity", "net_profit_margin", "sales_growth_3years") %in% names(dt_companies))) {
+    dt_companies[, quality_score := scale(return_on_equity) + scale(net_profit_margin) + scale(sales_growth_3years)]
+  }
+  # Value: -PE, -PBV, dividend yield
+  if (all(c("price_to_earning", "price_to_book_value", "dividend_yield") %in% names(dt_companies))) {
+    dt_companies[, value_score_composite := scale(-price_to_earning) + scale(-price_to_book_value) + scale(dividend_yield)]
+  }
+
+  # 7. Distance from all-time high
+  if (all(c("current_price", "high_price_all_time") %in% names(dt_companies))) {
+    dt_companies[, distance_from_ath := (current_price - high_price_all_time) / high_price_all_time]
+  }
+
+  # 8. Listing age (years)
+  if ("listing_date" %in% names(dt_companies)) {
+    dt_companies[, listing_age_years := as.numeric(Sys.Date() - as.Date(listing_date)) / 365.25]
+  }
+  # ---
+
+  # ---
+  # Replace NA/nulls in derived columns with 9999 for Power BI-friendliness
+  derived_cols <- c(
+    # Peer-relative columns
+    unlist(lapply(ranking_group_fields, function(g) paste0(metrics_to_average, "_vs_", g, "_avg"))),
+    # Margins, yields, ratios, scores, etc.
+    "net_profit_margin", "operating_margin", "earnings_yield", "peg_ratio",
+    "leverage_risk", "liquidity_risk", "quality_score", "value_score_composite",
+    "distance_from_ath", "listing_age_years"
+  )
+  for (col in derived_cols) {
+    if (col %in% names(dt_companies)) {
+      dt_companies[is.na(get(col)), (col) := 9999]
+    }
+  }
+  # ---
+
+  # --- Trend features: estimate historical value and percent change for all available metrics with 3y/5y growth ---
+  trend_metrics <- list(
+    sales = list(growth3 = "sales_growth_3years", growth5 = "sales_growth_5years"),
+    profit_after_tax = list(growth3 = "profit_growth_3years", growth5 = "profit_growth_5years"),
+    eps = list(growth3 = "eps_growth_3years", growth5 = NULL)
+  )
+  for (metric in names(trend_metrics)) {
+    growth3_col <- trend_metrics[[metric]]$growth3
+    growth5_col <- trend_metrics[[metric]]$growth5
+    if (!is.null(growth3_col) && all(c(metric, growth3_col) %in% names(dt_companies))) {
+      dt_companies[, paste0(metric, "_3y_ago") := get(metric) / (1 + get(growth3_col))^3]
+      dt_companies[, paste0(metric, "_vs_3y_ago") := (get(metric) - get(paste0(metric, "_3y_ago"))) / get(paste0(metric, "_3y_ago"))]
+    }
+    if (!is.null(growth5_col) && all(c(metric, growth5_col) %in% names(dt_companies))) {
+      dt_companies[, paste0(metric, "_5y_ago") := get(metric) / (1 + get(growth5_col))^5]
+      dt_companies[, paste0(metric, "_vs_5y_ago") := (get(metric) - get(paste0(metric, "_5y_ago"))) / get(paste0(metric, "_5y_ago"))]
+    }
+  }
+  # ---
+
+  # ---
+  # Volume-based metrics and flags
+  if (all(c("volume", "volume_1week_average") %in% names(dt_companies))) {
+    dt_companies[, volume_vs_1week_avg := volume / volume_1week_average]
+    dt_companies[, volume_spike_1week := as.integer(volume_vs_1week_avg > 2)]
+  }
+  if (all(c("volume", "volume_1month_average") %in% names(dt_companies))) {
+    dt_companies[, volume_vs_1month_avg := volume / volume_1month_average]
+    dt_companies[, volume_spike_1month := as.integer(volume_vs_1month_avg > 2)]
+    dt_companies[, low_volume_flag := as.integer(volume < volume_1month_average * 0.5)]
+  }
+  if (all(c("volume", "volume_1year_average") %in% names(dt_companies))) {
+    dt_companies[, volume_vs_1year_avg := volume / volume_1year_average]
+    dt_companies[, volume_spike_1year := as.integer(volume_vs_1year_avg > 2)]
+  }
+  if (all(c("volume", "market_capitalization") %in% names(dt_companies))) {
+    dt_companies[, liquidity_score_volume := volume / market_capitalization]
+  }
+  # Peer-relative volume for all groups (REMOVED as not meaningful across different market caps)
+  # for (group_field in ranking_group_fields) {
+  #   avg_col <- paste0(group_field, "_avg_volume")
+  #   if (avg_col %in% names(dt_companies) && "volume" %in% names(dt_companies)) {
+  #     rel_col <- paste0("volume_vs_", group_field, "_avg")
+  #     dt_companies[, (rel_col) := volume - get(avg_col)]
+  #   }
+  # }
+  # Replace NA/nulls in new volume columns with 9999 (excluding peer-relative volume columns)
+  volume_derived_cols <- c(
+    "volume_vs_1week_avg", "volume_spike_1week",
+    "volume_vs_1month_avg", "volume_spike_1month", "low_volume_flag",
+    "volume_vs_1year_avg", "volume_spike_1year",
+    "liquidity_score_volume"
+    # Peer-relative columns removed
+  )
+  for (col in volume_derived_cols) {
+    if (col %in% names(dt_companies)) {
+      dt_companies[is.na(get(col)), (col) := 9999]
+    }
+  }
+  # ---
+
+# Print head of market_capitalization before decile loop
+a <- head(dt_companies$market_capitalization)
+# cat('Head of market_capitalization:', a, '\n') # Commented out
+
+# Diagnostic prints for debt_to_equity and peg_ratio
+# cat('Summary for debt_to_equity:\n') # Commented out
+# print(summary(dt_companies$debt_to_equity)) # Commented out
+# cat('Unique values for debt_to_equity:', length(unique(dt_companies$debt_to_equity)), '\n') # Commented out
+# cat('Summary for peg_ratio:\n') # Commented out
+# print(summary(dt_companies$peg_ratio)) # Commented out
+# cat('Unique values for peg_ratio:', length(unique(dt_companies$peg_ratio)), '\n') # Commented out
+
+# --- Decile calculation for key metrics (current, growth, expected) ---
+metrics_decile_higher_better <- c(
+  "market_capitalization", "return_on_equity", "return_on_assets", "net_profit_margin", "eps", "revenue_growth", "ebitda_margin",
+  "sales_growth_3years", "profit_growth_3years", "profit_growth_5years", "eps_growth_3years",
+  "expected_quarterly_sales", "expected_quarterly_eps", "expected_quarterly_net_profit"
+)
+metrics_decile_lower_better <- c("price_to_earning", "price_to_book_value", "debt_to_equity", "peg_ratio")
+
+for (metric in metrics_decile_higher_better) {
+  if (metric %in% names(dt_companies)) {
+    decile_col <- paste0(metric, "_decile")
+    valid_idx <- which(is.finite(dt_companies[[metric]]) & dt_companies[[metric]] != 9999 & !is.na(dt_companies[[metric]]))
+    metric_ranks <- rep(NA_integer_, nrow(dt_companies))
+    metric_ranks[valid_idx] <- rank(-dt_companies[[metric]][valid_idx], ties.method = "min")
+    bins_used <- 10
+    repeat {
+      qtiles <- quantile(metric_ranks[valid_idx], probs = seq(0, 1, length.out = bins_used + 1), na.rm = TRUE)
+      if (length(unique(qtiles)) == length(qtiles)) {
+        deciles <- rep(NA_character_, nrow(dt_companies))
+        deciles[valid_idx] <- as.character(cut(
+          metric_ranks[valid_idx],
+          breaks = qtiles,
+          labels = as.character(1:bins_used),
+          include.lowest = TRUE
+        ))
+        dt_companies[, (decile_col) := deciles]
+        flog.info("Assigned %d-bin quantiles for %s", bins_used, metric)
+        break
+      } else if (bins_used > 2) {
+        bins_used <- bins_used - 1
+      } else {
+        dt_companies[, (decile_col) := NA_character_]
+        flog.info("Skipped quantile for %s due to insufficient unique values", metric)
+        break
+      }
+    }
+  }
+}
+for (metric in metrics_decile_lower_better) {
+  if (metric %in% names(dt_companies)) {
+    decile_col <- paste0(metric, "_decile")
+    valid_idx <- which(is.finite(dt_companies[[metric]]) & dt_companies[[metric]] != 9999 & !is.na(dt_companies[[metric]]))
+    metric_ranks <- rep(NA_integer_, nrow(dt_companies))
+    metric_ranks[valid_idx] <- rank(dt_companies[[metric]][valid_idx], ties.method = "min")
+    bins_used <- 10
+    repeat {
+      qtiles <- quantile(metric_ranks[valid_idx], probs = seq(0, 1, length.out = bins_used + 1), na.rm = TRUE)
+      if (length(unique(qtiles)) == length(qtiles)) {
+        deciles <- rep(NA_character_, nrow(dt_companies))
+        deciles[valid_idx] <- as.character(cut(
+          metric_ranks[valid_idx],
+          breaks = qtiles,
+          labels = as.character(1:bins_used),
+          include.lowest = TRUE
+        ))
+        dt_companies[, (decile_col) := deciles]
+        flog.info("Assigned %d-bin quantiles for %s", bins_used, metric)
+        break
+      } else if (bins_used > 2) {
+        bins_used <- bins_used - 1
+      } else {
+        dt_companies[, (decile_col) := NA_character_]
+        flog.info("Skipped quantile for %s due to insufficient unique values", metric)
+        break
+      }
+    }
+  }
+}
+
+# --- Deciles for expected quarterly metrics ---
+expected_metrics <- c("expected_quarterly_sales", "expected_quarterly_eps", "expected_quarterly_net_profit")
+for (metric in expected_metrics) {
+  if (metric %in% names(dt_companies)) {
+    decile_col <- paste0(metric, "_decile")
+    valid_idx <- which(is.finite(dt_companies[[metric]]) & dt_companies[[metric]] != 9999 & !is.na(dt_companies[[metric]]))
+    metric_ranks <- rep(NA_integer_, nrow(dt_companies))
+    metric_ranks[valid_idx] <- rank(-dt_companies[[metric]][valid_idx], ties.method = "min")
+    bins_used <- 10
+    repeat {
+      qtiles <- quantile(metric_ranks[valid_idx], probs = seq(0, 1, length.out = bins_used + 1), na.rm = TRUE)
+      if (length(unique(qtiles)) == length(qtiles)) {
+        deciles <- rep(NA_character_, nrow(dt_companies))
+        deciles[valid_idx] <- as.character(cut(
+          metric_ranks[valid_idx],
+          breaks = qtiles,
+          labels = as.character(1:bins_used),
+          include.lowest = TRUE
+        ))
+        dt_companies[, (decile_col) := deciles]
+        flog.info("Assigned %d-bin quantiles for %s", bins_used, metric)
+        break
+      } else if (bins_used > 2) {
+        bins_used <- bins_used - 1
+      } else {
+        dt_companies[, (decile_col) := NA_character_]
+        flog.info("Skipped quantile for %s due to insufficient unique values", metric)
+        break
+      }
+    }
+  }
+}
+
+# --- Trend features: expected vs. current/actual ---
+if (all(c("expected_quarterly_sales", "sales") %in% names(dt_companies))) {
+  dt_companies[, expected_sales_vs_current := (expected_quarterly_sales - sales) / sales]
+}
+if (all(c("expected_quarterly_eps", "eps") %in% names(dt_companies))) {
+  dt_companies[, expected_eps_vs_current := (expected_quarterly_eps - eps) / eps]
+}
+if (all(c("expected_quarterly_net_profit", "profit_after_tax") %in% names(dt_companies))) {
+  dt_companies[, expected_net_profit_vs_current := (expected_quarterly_net_profit - profit_after_tax) / profit_after_tax]
+}
 
   # 5. Export for Power BI (after ranking columns are added)
   if (!dir.exists("output")) dir.create("output")
