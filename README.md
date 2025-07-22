@@ -287,6 +287,70 @@ This project includes advanced R scripts for generating company-level insights, 
 
 ---
 
+## R Scripts: Data Analysis & Feature Engineering
+
+The `data_ingestion/Rscripts` directory contains R scripts for data quality checks, feature engineering, and price analytics. These scripts are designed to be run after the main data ingestion steps and are essential for preparing data for analytics and Power BI dashboards.
+
+### 0_setup_renv.R
+- **Purpose:** Sets up the R environment using `renv` for reproducible package management.
+- **Usage:**
+  ```sh
+  Rscript data_ingestion/Rscripts/0_setup_renv.R
+  ```
+- **When to run:** Once, or whenever you update R package dependencies.
+
+### 1_dq_check_companies.R
+- **Purpose:** Performs data quality checks on the `companies` table, including missing values, unique counts, and duplicate detection. Outputs a DQ summary CSV.
+- **Usage:**
+  ```sh
+  Rscript data_ingestion/Rscripts/1_dq_check_companies.R
+  ```
+- **Output:** `output/dq_summary_companies_<timestamp>.csv`
+- **When to run:** After initial data import or after major updates to company data.
+
+### 2_companies_insights.R
+- **Purpose:** Generates feature engineering, rankings, group averages, deciles, and outlier flags for all companies. Prepares data for Power BI and analytics.
+- **Usage:**
+  ```sh
+  Rscript data_ingestion/Rscripts/2_companies_insights.R
+  ```
+- **Output:**
+  - `output/ranked_companies_all_groups_<timestamp>.csv`
+  - Updates the `companies_powerbi` table in PostgreSQL
+- **When to run:** After updating company fundamentals or before Power BI refresh.
+
+### 3_companies_prices_features.R
+- **Purpose:** Calculates price-based features (returns, volatility, volume metrics, etc.) for all companies with price data. Joins features with company info for export.
+- **Usage:**
+  ```sh
+  Rscript data_ingestion/Rscripts/3_companies_prices_features.R
+  ```
+- **Output:**
+  - `output/companies_with_price_features_<timestamp>.csv`
+  - `output/companies_with_price_features_matched_<timestamp>.csv`
+- **When to run:** After updating price data or before analytics refresh.
+
+### 4_price_volume_probabilities.R
+- **Purpose:** Computes price and volume probability metrics for companies, useful for advanced analytics and risk modeling.
+- **Usage:**
+  ```sh
+  Rscript data_ingestion/Rscripts/4_price_volume_probabilities.R
+  ```
+- **Output:**
+  - `output/price_volume_probabilities_<timestamp>.csv`
+- **When to run:** As needed for advanced analytics.
+
+### debug_company_price_features.R
+- **Purpose:** Debugging script for inspecting price features of a single company. Not for production use.
+- **Usage:**
+  ```sh
+  Rscript data_ingestion/Rscripts/debug_company_price_features.R
+  ```
+- **Output:** Console output for inspection.
+- **When to run:** For troubleshooting or development only.
+
+---
+
 ## Logging & Monitoring
 - **All scripts** log to timestamped files in `log/`
 - Both INFO and ERROR levels are captured
