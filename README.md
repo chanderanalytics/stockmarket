@@ -532,3 +532,36 @@ These metrics are calculated for various lookback periods (lags), denoted by `_X
 
 - All probabilities are calculated over the available historical data for each company.
 - These features are useful for identifying stocks with a high likelihood of experiencing significant price or volume moves, which can be valuable for swing trading strategies. 
+
+---
+
+## Power BI Dashboard Plans
+
+### Data Sources
+- `merged_price_baseline_probabilities_wide`: Price return probabilities and features (one row per company)
+- `merged_volume_baseline_probabilities_wide`: Volume change probabilities and features (one row per company)
+- `merged_price_spike_probabilities_wide`: Price spike probabilities (one row per company)
+- `merged_volume_spike_probabilities_wide`: Volume spike probabilities (one row per company)
+- `companies`: Company metadata (name, sector, industry, market cap, etc.)
+- `corp_action_flags`: Corporate action flags and types, joined with company features
+
+### Key Visuals and Pages
+- **Market Overview**: KPI cards (market return, volume, volatility), sector/industry heatmap, top/bottom performers, timeframe slicer
+- **Last Day Highlights**: Buzzing sectors/stocks, crashers, corporate actions table, volume spike table
+- **Stock Drilldown**: Company selector, price & volume chart, recent returns/volatility/spike probabilities, corporate actions timeline, peer comparison
+- **Predictive Insights**: Next-day return probabilities, sector-level prediction summary, high-probability mover alerts
+
+### Interactivity & Analysis
+- Slicers/filters for sector, industry, market cap, date range, return/volatility thresholds, corporate action type
+- Drilldown from sector to company, and company to detailed view
+- Conditional formatting to highlight high price/volume spike probabilities
+- Correlation analysis between price and volume features (scatter plots, heatmaps)
+
+### Data Model & Relationships
+- All wide tables are joined on `company_id` to `companies` and `corp_action_flags`
+- Designed for efficient, modular analytics and easy extension
+
+### Usage
+- Connect Power BI to the PostgreSQL database or import the exported CSVs
+- Set up relationships as described above
+- Use the provided visuals as a starting point for further customization and insight generation 
