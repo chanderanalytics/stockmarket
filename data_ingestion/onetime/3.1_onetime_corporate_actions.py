@@ -13,11 +13,13 @@ import yfinance as yf
 from sqlalchemy import create_engine, tuple_, or_, and_
 from sqlalchemy.orm import sessionmaker
 from backend.models import Base, Company, CorporateAction
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 import logging
 import argparse
 import re
+import pandas as pd
+from sqlalchemy.dialects.postgresql import insert
 
 # Set up logging
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -55,12 +57,13 @@ def get_yfinance_ticker(company):
         return f"{bse_code_str}.BO", 'BSE'
     return None, None
 
-def fetch_and_store_corporate_actions(limit=None, batch_size=50):
+def fetch_and_store_corporate_actions(limit=None, batch_size=100, days=None):
     """
     Fetch historical corporate actions (splits and dividends) for all companies.
     Uses smart comparison to only insert new actions.
     """
     session = Session()
+    yesterday = (datetime.now() - timedelta(days=1)).date()
     
     # Initialize quality metrics
     quality_metrics = {
@@ -108,7 +111,8 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
         skipped = 0
         new_actions = 0
         
-        for company in companies:
+        bulk_action_dicts = []
+        for i, company in enumerate(companies):
             ticker, exchange = get_yfinance_ticker(company)
             if not ticker:
                 skipped += 1
@@ -119,6 +123,12 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
                 yf_ticker = yf.Ticker(ticker)
                 splits = yf_ticker.splits
                 dividends = yf_ticker.dividends
+                if days:
+                    cutoff = pd.Timestamp(datetime.now().date() - pd.Timedelta(days=days))
+                    if splits.index.tz is not None:
+                        cutoff = cutoff.tz_localize(splits.index.tz)
+                    splits = splits[splits.index >= cutoff]
+                    dividends = dividends[dividends.index >= cutoff]
             except Exception as e:
                 quality_metrics['api_errors'] += 1
                 quality_metrics['companies_api_errors'] += 1
@@ -146,7 +156,7 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
                         key = (company_code, date, 'split')
                         all_keys.add(key)
                         company_splits += 1
-                        action = CorporateAction(company_code=company_code, company_name=company.name, date=date, type='split', details=f"{ratio}:1 split")
+                        action = CorporateAction(company_id=company.id, company_code=company_code, company_name=company.name, date=date, type='split', details=f"{ratio}:1 split", last_modified=yesterday)
                         action_objects.append(action)
             
             # Store dividends
@@ -162,7 +172,7 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
                         key = (company_code, date, 'dividend')
                         all_keys.add(key)
                         company_dividends += 1
-                        action = CorporateAction(company_code=company_code, company_name=company.name, date=date, type='dividend', details=f"{amount} dividend")
+                        action = CorporateAction(company_id=company.id, company_code=company_code, company_name=company.name, date=date, type='dividend', details=f"{amount} dividend", last_modified=yesterday)
                         action_objects.append(action)
             
             quality_metrics['total_splits'] += company_splits
@@ -193,28 +203,47 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
             quality_metrics['duplicate_splits'] += len([a for a in action_objects if a.type == 'split']) - new_splits_count
             quality_metrics['duplicate_dividends'] += len([a for a in action_objects if a.type == 'dividend']) - new_dividends_count
             
-            if new_actions_batch:
-                try:
-                    session.bulk_save_objects(new_actions_batch)
-                    session.commit()
-                    new_actions += len(new_actions_batch)
-                    logger.info(f"Updated {company.name} ({ticker}) - added {len(new_actions_batch)} new actions")
-                except Exception as e:
-                    quality_metrics['database_errors'] += 1
-                    logger.error(f"Database error for {company.name}: {e}")
-                    session.rollback()
-            else:
-                quality_metrics['companies_no_changes'] += 1
-                logger.info(f"No changes for {company.name} ({ticker}) - all actions already exist")
+            for action in new_actions_batch:
+                bulk_action_dicts.append({
+                    'company_id': action.company_id,
+                    'company_code': action.company_code,
+                    'company_name': action.company_name,
+                    'date': action.date,
+                    'type': action.type,
+                    'details': action.details,
+                    'last_modified': action.last_modified
+                })
             
+            # Batch upsert every batch_size companies or at the end
+            if (i + 1) % batch_size == 0 or (i + 1) == len(companies):
+                if bulk_action_dicts:
+                    try:
+                        logger.info(f"Batch {(i + 1) // batch_size} upserting {len(bulk_action_dicts)} actions...")
+                        stmt = insert(CorporateAction).values(bulk_action_dicts)
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=['company_code', 'date', 'type'],
+                            set_={
+                                'details': stmt.excluded.details,
+                                'last_modified': stmt.excluded.last_modified,
+                                'company_name': stmt.excluded.company_name,
+                                'company_id': stmt.excluded.company_id
+                            }
+                        )
+                        session.execute(stmt)
+                        session.commit()
+                        logger.info(f"Batch {(i + 1) // batch_size} committed {len(bulk_action_dicts)} actions.")
+                    except Exception as e:
+                        quality_metrics['database_errors'] += 1
+                        logger.error(f"Database error in batch {(i + 1) // batch_size}: {e}")
+                        session.rollback()
+                    bulk_action_dicts = []
             count += 1
             quality_metrics['companies_processed'] += 1
             
             # Commit less frequently for better performance
-            if count % 100 == 0:
-                print(f"Processed {count}/{total} companies...")
-            
-            logger.info(f"Processed {count}/{total} companies. Added {len(new_actions_batch)} new actions.")
+            # if count % 100 == 0:
+            #     print(f"Processed {count}/{total} companies. Added {new_actions} new actions so far.")
+            # logger.info(f"Processed {count}/{total} companies. Added {len(new_actions_batch)} new actions.")
         
         # Calculate final metrics
         quality_metrics['end_time'] = datetime.now()
@@ -243,6 +272,7 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
         logger.info(f"Processing duration: {quality_metrics['duration']}")
         logger.info(f"Success rate: {quality_metrics['companies_processed'] / quality_metrics['companies_with_valid_codes'] * 100:.2f}%")
         
+        # Print final summary
         print(f"\nCorporate Actions Summary:")
         print(f"- Mode: smart comparison")
         print(f"- Total companies: {quality_metrics['total_companies']}")
@@ -275,6 +305,15 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=50):
             print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
         
         logger.info(f"Corporate actions completed: {quality_metrics['companies_processed']} processed, {new_actions} new actions, {quality_metrics['companies_no_changes']} no changes, {quality_metrics['companies_api_errors']} errors")
+        
+        # Print last 10 days data count
+        from sqlalchemy import func
+        last_10_days = session.query(CorporateAction.date).order_by(CorporateAction.date.desc()).distinct().limit(10).all()
+        last_10_days = [d[0] for d in last_10_days]
+        print("\nCorporate actions counts for last 10 days:")
+        for d in sorted(last_10_days):
+            count = session.query(CorporateAction).filter(CorporateAction.date == d).count()
+            print(f"{d}: {count}")
         
     except Exception as e:
         quality_metrics['database_errors'] += 1
@@ -338,16 +377,17 @@ def analyze_corporate_actions_data_quality(session):
 
 def get_today_csv_file():
     today_str = datetime.now().strftime('%Y%m%d')
-    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    expected_file = f'data/screener_export_{today_str}.csv'
     if os.path.exists(expected_file):
         return expected_file
     else:
-        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data folder.")
 
 csv_file = get_today_csv_file()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fetch historical corporate actions for companies.')
     parser.add_argument('--limit', type=int, default=None, help='Limit number of companies to process')
+    parser.add_argument('--days', type=int, default=None, help='Number of days to fetch (default: 10y)')
     args = parser.parse_args()
-    fetch_and_store_corporate_actions(limit=args.limit) 
+    fetch_and_store_corporate_actions(limit=args.limit, days=args.days) 

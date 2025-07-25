@@ -7,10 +7,11 @@ import math
 from sqlalchemy import create_engine, tuple_
 from sqlalchemy.orm import sessionmaker
 from backend.models import Base, IndexPrice, Index
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import numpy as np
 import re
+from sqlalchemy.dialects.postgresql import insert
 
 # Database connection string
 DATABASE_URL = 'postgresql://stockuser:stockpass@localhost:5432/stockdb'
@@ -29,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 # List of major indices and their tickers
 INDICES = [
-    # India
     {"name": "Nifty 50", "ticker": "^NSEI", "region": "India", "description": "NSE main index"},
     {"name": "Nifty Bank", "ticker": "^NSEBANK", "region": "India", "description": "Nifty Bank index"},
     {"name": "Sensex", "ticker": "^BSESN", "region": "India", "description": "BSE main index"},
@@ -37,29 +37,23 @@ INDICES = [
     {"name": "BSE 200", "ticker": "^BSE200", "region": "India", "description": "BSE 200 index"},
     {"name": "BSE Smallcap", "ticker": "^BSESMCAP", "region": "India", "description": "BSE Smallcap index"},
     {"name": "BSE Midcap", "ticker": "^BSE-MIDCAP", "region": "India", "description": "BSE Midcap index (corrected ticker)"},
-    # US
     {"name": "S&P 500", "ticker": "^GSPC", "region": "USA", "description": "US large-cap index"},
     {"name": "Dow Jones", "ticker": "^DJI", "region": "USA", "description": "US blue-chip index"},
     {"name": "Nasdaq Composite", "ticker": "^IXIC", "region": "USA", "description": "US tech-heavy index"},
     {"name": "Russell 2000", "ticker": "^RUT", "region": "USA", "description": "US small-cap index"},
-    # Europe
     {"name": "FTSE 100", "ticker": "^FTSE", "region": "UK", "description": "UK main index"},
     {"name": "DAX", "ticker": "^GDAXI", "region": "Germany", "description": "German main index"},
     {"name": "CAC 40", "ticker": "^FCHI", "region": "France", "description": "French main index"},
     {"name": "Euro Stoxx 50", "ticker": "^STOXX50E", "region": "Eurozone", "description": "Eurozone blue-chip index"},
-    # Asia-Pacific
     {"name": "Nikkei 225", "ticker": "^N225", "region": "Japan", "description": "Japan main index"},
     {"name": "Hang Seng", "ticker": "^HSI", "region": "Hong Kong", "description": "Hong Kong main index"},
     {"name": "Shanghai Composite", "ticker": "000001.SS", "region": "China", "description": "China main index"},
     {"name": "KOSPI", "ticker": "^KS11", "region": "South Korea", "description": "South Korea main index"},
     {"name": "Straits Times", "ticker": "^STI", "region": "Singapore", "description": "Singapore main index"},
     {"name": "ASX 200", "ticker": "^AXJO", "region": "Australia", "description": "Australia main index"},
-    # Global/ETF alternatives for MSCI indices
     {"name": "MSCI World (ETF)", "ticker": "URTH", "region": "Global", "description": "iShares MSCI World ETF (alternative to MSCI World)"},
     {"name": "MSCI Emerging Markets (ETF)", "ticker": "EEM", "region": "Global", "description": "iShares MSCI Emerging Markets ETF (alternative to MSCI EM)"},
-    # Dollar Index
     {"name": "US Dollar Index", "ticker": "DX-Y.NYB", "region": "Global", "description": "US Dollar Index (DXY)"},
-    # Commodities
     {"name": "Gold", "ticker": "GC=F", "region": "Commodities", "description": "Gold Futures (COMEX)"},
     {"name": "Silver", "ticker": "SI=F", "region": "Commodities", "description": "Silver Futures (COMEX)"},
     {"name": "Crude Oil (WTI)", "ticker": "CL=F", "region": "Commodities", "description": "WTI Crude Oil Futures"},
@@ -151,7 +145,7 @@ def populate_indices_table():
     finally:
         session.close()
 
-def fetch_and_store_indices_prices():
+def fetch_and_store_indices_prices(days=None):
     """
     Fetch historical prices for major indices.
     Uses smart comparison to only insert new price records.
@@ -161,6 +155,15 @@ def fetch_and_store_indices_prices():
     
     session = Session()
     
+    # Get total index price records before run and log run date
+    from sqlalchemy import func
+    run_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    count_before = session.query(func.count(IndexPrice.id)).scalar()
+    logger.info(f"Run date: {run_date}")
+    logger.info(f"Index price records before run: {count_before}")
+    print(f"Run date: {run_date}")
+    print(f"Index price records before run: {count_before}")
+
     # Initialize quality metrics
     quality_metrics = {
         'start_time': datetime.now(),
@@ -187,10 +190,17 @@ def fetch_and_store_indices_prices():
     logger.info(f"Fetching indices data for {len(INDICES)} indices (smart comparison)")
     
     for i, idx in enumerate(INDICES):
-        logger.info(f"Fetching data for {idx['name']} ({idx['ticker']})...")
+        # Log start of index
+        logger.info(f"Index {i+1} started: {idx['name']} ({idx['ticker']})")
         try:
             quality_metrics['api_calls'] += 1
-            df = yf.download(idx['ticker'], period="10y", interval="1d", progress=False, auto_adjust=False)
+            period = f"{days}d" if days else "10y"
+            df = yf.download(idx['ticker'], period=period, interval="1d", progress=False, auto_adjust=False)
+            # Filter out today's data
+            today = datetime.now().date()
+            df = df[df.index.date < today]
+            # Set file_date to yesterday for last_modified
+            file_date = (datetime.now() - timedelta(days=1)).date()
             
             if df is None or df.empty:
                 logger.warning(f"No data for {idx['name']} ({idx['ticker']})")
@@ -210,12 +220,8 @@ def fetch_and_store_indices_prices():
             index_price_count = 0
             index_invalid_prices = 0
             
-            match = re.search(r'(\d{8})', idx['ticker'])
-            if match:
-                file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
-            else:
-                raise ValueError("No date found in ticker!")
-            
+            # Set file_date to current date for all records (fix bug)
+            # file_date = datetime.now().date() # This line is now redundant as file_date is set above
             for date, row in df.iterrows():
                 key = (idx['name'], idx['ticker'], date.date())
                 all_keys.add(key)
@@ -295,21 +301,48 @@ def fetch_and_store_indices_prices():
             
             if new_prices:
                 try:
-                    session.bulk_save_objects(new_prices)
+                    for price in new_prices:
+                        stmt = insert(IndexPrice).values(
+                            name=price.name,
+                            ticker=price.ticker,
+                            region=price.region,
+                            description=price.description,
+                            date=price.date,
+                            open=price.open,
+                            high=price.high,
+                            low=price.low,
+                            close=price.close,
+                            volume=price.volume,
+                            last_modified=price.last_modified
+                        ).on_conflict_do_update(
+                            index_elements=['ticker', 'date'],
+                            set_={
+                                'open': price.open,
+                                'high': price.high,
+                                'low': price.low,
+                                'close': price.close,
+                                'volume': price.volume,
+                                'last_modified': price.last_modified,
+                                'name': price.name,
+                                'region': price.region,
+                                'description': price.description
+                            }
+                        )
+                        session.execute(stmt)
                     session.commit()
-                    logger.info(f"Updated {idx['name']} ({idx['ticker']}) - added {len(new_prices)} new price records")
+                    logger.info(f"{idx['name']} ({idx['ticker']}): {len(new_prices)} new price records upserted.")
                 except Exception as e:
                     quality_metrics['database_errors'] += 1
                     logger.error(f"Database error for {idx['name']}: {e}")
                     session.rollback()
             else:
                 quality_metrics['indices_no_changes'] += 1
-                logger.info(f"No changes for {idx['name']} ({idx['ticker']}) - all price records already exist")
+                logger.info(f"{idx['name']} ({idx['ticker']}): No new price records (all already exist).")
             
             quality_metrics['indices_processed'] += 1
             
             # Progress tracking
-            print(f"Processed {i+1}/{len(INDICES)} indices: {idx['name']} ({len(new_prices)} new records)")
+            # print(f"Processed {i+1}/{len(INDICES)} indices: {idx['name']} ({len(new_prices)} new records)")
             
         except Exception as e:
             quality_metrics['api_errors'] += 1
@@ -343,6 +376,7 @@ def fetch_and_store_indices_prices():
     logger.info(f"Processing duration: {quality_metrics['duration']}")
     logger.info(f"Success rate: {quality_metrics['indices_processed'] / quality_metrics['total_indices'] * 100:.2f}%")
     
+    # Print final summary
     print(f"\nIndices Summary:")
     print(f"- Mode: smart comparison")
     print(f"- Total indices: {quality_metrics['total_indices']}")
@@ -350,6 +384,15 @@ def fetch_and_store_indices_prices():
     print(f"- No changes needed: {quality_metrics['indices_no_changes']}")
     print(f"- New price records: {quality_metrics['new_price_records']}")
     print(f"- Success rate: {quality_metrics['indices_processed'] / quality_metrics['total_indices'] * 100:.2f}%")
+    
+    # Print last 10 days data count
+    from sqlalchemy import func
+    last_10_days = session.query(IndexPrice.date).order_by(IndexPrice.date.desc()).distinct().limit(10).all()
+    last_10_days = [d[0] for d in last_10_days]
+    print("\nIndex price record counts for last 10 days:")
+    for d in sorted(last_10_days):
+        count = session.query(IndexPrice).filter(IndexPrice.date == d).count()
+        print(f"{d}: {count}")
     
     # Analyze indices data quality
     print("Analyzing indices data quality...")
@@ -395,6 +438,14 @@ def fetch_and_store_indices_prices():
         print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
     
     logger.info(f"Indices completed: {quality_metrics['indices_processed']} processed, {quality_metrics['new_price_records']} new records, {quality_metrics['indices_no_changes']} no changes, {quality_metrics['indices_api_errors']} errors")
+    
+    # After all indices processed, check for duplicates
+    count_after = session.query(func.count(IndexPrice.id)).scalar()
+    net_change = count_after - count_before
+    logger.info(f"Index price records after run: {count_after}")
+    logger.info(f"Net change in index price records: {net_change}")
+    print(f"Index price records after run: {count_after}")
+    print(f"Net change in index price records: {net_change}")
     
     session.close()
     logger.info("All indices processed.")
@@ -490,4 +541,8 @@ def analyze_index_prices_data_quality(session):
     return quality_report
 
 if __name__ == "__main__":
-    fetch_and_store_indices_prices() 
+    import argparse
+    parser = argparse.ArgumentParser(description='Fetch historical index prices.')
+    parser.add_argument('--days', type=int, default=None, help='Number of days to fetch (default: 10y)')
+    args = parser.parse_args()
+    fetch_and_store_indices_prices(days=args.days) 

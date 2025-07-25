@@ -9,6 +9,8 @@ library(data.table)
 library(zoo)
 library(futile.logger)
 
+test_n <- NA  # Set to NA to process all companies, or to a number for testing (e.g., 10)
+
 # Set up logging
 log_file <- sprintf("log/companies_prices_features_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S"))
 flog.appender(appender.file(log_file))
@@ -30,6 +32,49 @@ db_con <- dbConnect(
   user = user,
   password = password
 )
+
+# --- CONFIG ---
+con <- dbConnect(
+  RPostgres::Postgres(),
+  dbname = Sys.getenv("PGDATABASE"),
+  host = Sys.getenv("PGHOST"),
+  port = as.integer(Sys.getenv("PGPORT")),
+  user = Sys.getenv("PGUSER"),
+  password = Sys.getenv("PGPASSWORD")
+)
+
+companies <- as.data.table(dbReadTable(con, "companies"))
+prices <- as.data.table(dbReadTable(con, "prices"))
+today <- Sys.Date()
+
+# Allow override of 'today' via command-line argument
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) > 0 && grepl("^\\d{4}-\\d{2}-\\d{2}$", args[1])) {
+  today <- as.Date(args[1])
+} else {
+  today <- Sys.Date()
+}
+cat(sprintf("[INFO] Using 'today' as: %s\n", as.character(today)))
+# Allow override of test_n via second command-line argument
+if (length(args) > 1 && !is.na(as.numeric(args[2]))) {
+  test_n <- as.numeric(args[2])
+  cat(sprintf("[INFO] Using test_n: %d\n", test_n))
+}
+
+# For each company, if no price for today, insert from current_price
+for (i in 1:nrow(companies)) {
+  code <- companies$company_code[i]
+  cid <- companies$id[i]
+  if (length(code) != 1 || is.na(code) || code == "" || length(cid) != 1 || is.na(cid) || cid == "") next
+  price_today <- prices[company_code %in% code & date == today]
+  if (nrow(price_today) == 0 && !is.na(companies$current_price[i])) {
+    dbExecute(con, sprintf(
+      "INSERT INTO prices (company_code, company_id, date, close, last_modified) VALUES ('%s', %d, '%s', %f, '%s')",
+      code, cid, today, companies$current_price[i], today
+    ))
+    cat(sprintf("Inserted today's price from companies table for %s: %f\n", code, companies$current_price[i]))
+  }
+}
 
 tryCatch({
   flog.info("Loading companies and prices tables from database...")
@@ -96,6 +141,12 @@ tryCatch({
   # Ensure id and company_id are the same type (character)
   companies_dt[, id := as.character(id)]
   prices_dt[, company_id := as.character(company_id)]
+  # Debug: check ID types and overlap
+  cat("class(companies_dt$id):", class(companies_dt$id), "\n")
+  cat("class(prices_dt$company_id):", class(prices_dt$company_id), "\n")
+  cat("Number of companies in companies_dt:", length(unique(companies_dt$id)), "\n")
+  cat("Number of companies in prices_dt for today:", length(unique(prices_dt[date == today, company_id])), "\n")
+  cat("Number of overlapping IDs:", length(intersect(unique(companies_dt$id), unique(prices_dt[date == today, company_id]))), "\n")
 
   # Left join companies to prices on id = company_id
   joined_dt <- merge(companies_dt, prices_dt, by.x = "id", by.y = "company_id", all.x = TRUE)
@@ -112,6 +163,12 @@ tryCatch({
   # Find top 50 ids by number of price records in joined data
   company_counts <- joined_dt[, .N, by = id][order(-N)]
   top_ids <- company_counts[ , id]  # Process all companies, not just the top 50
+  # Filter to only companies with price data for 'today'
+  ids_with_data <- unique(prices_dt[date == today, company_id])
+  top_ids <- top_ids[top_ids %in% ids_with_data]
+  if (!is.na(test_n) && !is.null(test_n)) {
+    top_ids <- top_ids[1:min(test_n, length(top_ids))]
+  }
 
   # Print number of rows in companies and prices tables
   # cat(sprintf("Number of rows in companies_dt: %d\n", nrow(companies_dt)))
@@ -141,14 +198,42 @@ tryCatch({
   features_list <- list()
   for (i in seq_along(top_ids)) {
     cid <- top_ids[i]
-    cname <- joined_dt[id == cid, unique(name)][1]
-    dt <- joined_dt[id == cid][order(date)]
+    if (i %% 100 == 0) {
+      flog.info("Processed %d/%d companies. Current company: %s", i, length(top_ids), cid)
+    }
+    if (length(cid) != 1 || is.na(cid) || cid == "" || !(cid %in% joined_dt$id)) {
+      next  # Skip this company if id is missing or empty
+    }
+    # Use %in% for all subsetting to avoid length-0 errors
+    cname <- joined_dt[id %in% cid, unique(name)][1]
+    dt <- joined_dt[id %in% cid][order(date)]
     n_dt <- nrow(dt)
-    price_col <- if ("adj_close" %in% names(dt)) "adj_close" else if ("adj_close.x" %in% names(dt)) "adj_close.x" else if ("close" %in% names(dt)) "close" else if ("close.x" %in% names(dt)) "close.x" else NA
+    price_col <- if ("adj_close" %in% names(dt)) "adj_close" else if ("adj_close.x" %in% names(dt)) "adj_close.x" else NA
     volume_col <- "price_volume"
     f <- list(id = cid)
-    latest_close <- if (!is.na(price_col) && n_dt > 0) dt[n_dt, get(price_col)] else NA_real_
-    latest_volume <- if (!is.na(volume_col) && n_dt > 0) dt[n_dt, get(volume_col)] else NA_real_
+    # For current date: use price_volume if available, else companies volume; for other dates, use only price_volume
+    if (n_dt > 0 && !is.na(dt[n_dt, date]) && dt[n_dt, date] == today) {
+      if (!is.na(price_col) && !is.na(dt[n_dt, get(price_col)])) {
+        latest_close <- dt[n_dt, get(price_col)]
+      } else {
+        # Use %in% for robustness
+        cp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, current_price] else NA_real_
+        latest_close <- if (!is.na(cp)) cp else NA_real_
+      }
+      # Volume logic for current date
+      if (!is.na(volume_col) && !is.na(dt[n_dt, get(volume_col)])) {
+        latest_volume <- dt[n_dt, get(volume_col)]
+      } else {
+        v_comp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, volume] else NA_real_
+        latest_volume <- if (!is.na(v_comp)) v_comp else NA_real_
+      }
+    } else if (!is.na(price_col) && n_dt > 0) {
+      latest_close <- dt[n_dt, get(price_col)]
+      latest_volume <- if (!is.na(volume_col) && n_dt > 0) dt[n_dt, get(volume_col)] else NA_real_
+    } else {
+      latest_close <- NA_real_
+      latest_volume <- NA_real_
+    }
     f[["latest_close"]] <- latest_close
     f[["latest_volume"]] <- latest_volume
     for (lag in lags) {
@@ -221,7 +306,8 @@ tryCatch({
             f[[vlo_col]] <- vlo
             f[[vdhi_col]] <- 100 * (latest_volume - vhi) / vhi
             f[[vdlo_col]] <- 100 * (latest_volume - vlo) / vlo
-            if (!is.na(past_volume) && past_volume > 0) {
+            # Robust length check for past_volume
+            if (length(past_volume) == 1 && !is.na(past_volume) && past_volume > 0) {
               f[[vchg_col]] <- 100 * (latest_volume - past_volume) / past_volume
             } else {
               f[[vchg_col]] <- NA_real_
@@ -301,8 +387,6 @@ tryCatch({
       }
     }
     features_list[[i]] <- as.data.table(f)
-    cat(sprintf("Run finished for company %s\n", cid))
-    flog.info("Run finished for company %s", cid)
   }
   features_dt <- rbindlist(features_list, fill = TRUE)
   # print(features_dt) # Commented out as per edit hint
@@ -332,16 +416,60 @@ tryCatch({
   output_file <- sprintf("output/companies_with_price_features_%s.csv", timestamp)
   fwrite(final_dt, output_file)
   flog.info("Exported features to %s", output_file)
+  # Write final_dt to database
+  dbWriteTable(con, "companies_with_price_features", as.data.frame(final_dt), overwrite = TRUE)
+  flog.info("Exported features to companies_with_price_features table in database.")
 
   # Export only companies that matched price data
   matched_dt <- final_dt[!is.na(latest_close) & latest_close != 9999]
   matched_output_file <- sprintf("output/companies_with_price_features_matched_%s.csv", timestamp)
   fwrite(matched_dt, matched_output_file)
   flog.info("Exported matched companies to %s", matched_output_file)
+  # Write matched_dt to database
+  dbWriteTable(con, "companies_with_price_features_matched", as.data.frame(matched_dt), overwrite = TRUE)
+  flog.info("Exported matched features to companies_with_price_features_matched table in database.")
 
   # Disconnect
   dbDisconnect(db_con)
   flog.info("Disconnected from database. Script complete.")
+
+  # After features_dt is created and has the 'latest_close' and 'latest_volume' columns
+  adj_close_used <- 0
+  current_price_used <- 0
+  price_volume_used <- 0
+  companies_volume_used <- 0
+  for (i in seq_along(top_ids)) {
+    cid <- top_ids[i]
+    if (length(cid) != 1 || is.na(cid) || cid == "" || !(cid %in% joined_dt$id)) {
+      next  # Skip this company if id is missing or empty
+    }
+    dt <- joined_dt[id %in% cid][order(date)]
+    price_col <- if ("adj_close" %in% names(dt)) "adj_close" else if ("adj_close.x" %in% names(dt)) "adj_close.x" else NA
+    volume_col <- "price_volume"
+    today_row <- dt[date == today]
+    if (nrow(today_row) > 0) {
+      # Price
+      if (!is.na(today_row[[price_col]])) {
+        adj_close_used <- adj_close_used + 1
+      } else {
+        cp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, current_price] else NA_real_
+        if (!is.na(cp)) {
+          current_price_used <- current_price_used + 1
+        }
+      }
+      # Volume
+      if (!is.na(today_row[[volume_col]])) {
+        price_volume_used <- price_volume_used + 1
+      } else {
+        v_comp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, volume] else NA_real_
+        if (!is.na(v_comp)) {
+          companies_volume_used <- companies_volume_used + 1
+        }
+      }
+    }
+  }
+  # Only print the final summary
+  cat(sprintf("For %s:\nadj_close was used for %d companies\ncurrent_price from companies table was used for %d companies\nprice_volume was used for %d companies\ncompanies volume was used for %d companies\n", as.character(today), adj_close_used, current_price_used, price_volume_used, companies_volume_used))
 
 }, error = function(e) {
   flog.error("Error: %s", e$message)

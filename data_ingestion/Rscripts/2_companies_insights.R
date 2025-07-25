@@ -54,30 +54,29 @@ tryCatch({
   dt_companies <- as.data.table(dbGetQuery(con, "SELECT * FROM companies"))
   flog.info("Pulled %d rows from companies table", nrow(dt_companies))
   
-  # Map BSE sector/industry using BSE code
+  # --- BSE Mapping: Clean, robust logic ---
   bse_map <- fread("/Users/chanderbhushan/stockmkt/data/BSE_Sector_Mapping.csv")
-  # Read only the header (first row) of the CSV to get column names
-  col_names <- names(bse_map)
-  # print(col_names) # Commented out
-  # Rename columns to have _bse suffix and replace dots with underscores
-  setnames(bse_map, old = col_names, new = paste0(gsub(" ", "_", tolower(col_names)), "_bse"))
-
-# Ensure both columns are integer type for merge (in both data.tables)
-dt_companies[, bse_code := as.integer(bse_code)]
-bse_map[, security_code_bse := as.integer(security_code_bse)]
-
-# Print types for debugging
-# cat("Type of companies_dt$bse_code:", class(dt_companies$bse_code), "\n") # Commented out
-# cat("Type of bse_map$security_code_bse:", class(bse_map$security_code_bse), "\n") # Commented out
-
-
-dt_companies <- merge(
+  # Standardize the key column name for merging
+  if ("Security Code" %in% names(bse_map)) setnames(bse_map, "Security Code", "bse_code")
+  if ("security_code" %in% names(bse_map)) setnames(bse_map, "security_code", "bse_code")
+  # Rename all other columns to have _bse suffix (except the key)
+  cols_to_rename <- setdiff(names(bse_map), "bse_code")
+  setnames(bse_map, cols_to_rename, paste0(cols_to_rename, "_bse"))
+  # Ensure dt_companies has bse_code as integer
+  if (!"bse_code" %in% names(dt_companies) && "bse_code" %in% names(dt_companies)) dt_companies[, bse_code := as.integer(trimws(as.character(bse_code)))]
+  dt_companies[, bse_code := as.integer(trimws(as.character(bse_code)))]
+  bse_map[, bse_code := as.integer(trimws(as.character(bse_code)))]
+  # Merge
+  merged_dt <- merge(
     dt_companies,
     bse_map,
-    by.x = "bse_code",
-    by.y = "security_code_bse",
+    by = "bse_code",
     all.x = TRUE
   )
+  # Debug: check name column after merge
+  cat("[DEBUG] Columns after merge:", paste(names(merged_dt), collapse=", "), "\n")
+  cat("[DEBUG] Sample names after merge:", paste(head(merged_dt$name, 10), collapse=", "), "\n")
+  dt_companies <- merged_dt
   flog.info("Mapped BSE sector/industry using BSE code with _bse suffix.")
 
   # 3. Data Cleaning (data.table syntax)
