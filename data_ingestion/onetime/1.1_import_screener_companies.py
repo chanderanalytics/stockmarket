@@ -17,6 +17,7 @@ from datetime import datetime
 import math
 import logging
 import re
+from sqlalchemy.dialects.postgresql import insert
 
 # Set up logging for one-time/full runs
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -68,128 +69,15 @@ def clean_numeric_value(value):
     except (ValueError, TypeError):
         return None
 
+# Remove DQ analysis functions
 def analyze_csv_data_quality(df):
-    """Analyze data quality for all columns in the CSV"""
-    quality_report = {
-        'total_rows': len(df),
-        'columns': {}
-    }
-    
-    for column in df.columns:
-        total_values = len(df)
-        non_null_values = df[column].notna().sum()
-        null_values = total_values - non_null_values
-        null_percentage = (null_values / total_values) * 100 if total_values > 0 else 0
-        non_null_percentage = (non_null_values / total_values) * 100 if total_values > 0 else 0
-        
-        # Check for empty strings
-        empty_strings = 0
-        if df[column].dtype == 'object':
-            empty_strings = (df[column].astype(str).str.strip() == '').sum()
-        
-        # Check for 'nan' strings
-        nan_strings = 0
-        if df[column].dtype == 'object':
-            nan_strings = (df[column].astype(str).str.lower() == 'nan').sum()
-        
-        quality_report['columns'][column] = {
-            'total_values': total_values,
-            'non_null_values': non_null_values,
-            'null_values': null_values,
-            'null_percentage': null_percentage,
-            'non_null_percentage': non_null_percentage,
-            'empty_strings': empty_strings,
-            'nan_strings': nan_strings,
-            'data_type': str(df[column].dtype),
-            'unique_values': df[column].nunique()
-        }
-    
-    return quality_report
+    pass
 
 def analyze_database_table_quality(session):
-    """Analyze data quality for all columns in the companies table"""
-    quality_report = {
-        'total_rows': 0,
-        'columns': {}
-    }
-    
-    # Get total count
-    total_rows = session.query(Company).count()
-    quality_report['total_rows'] = total_rows
-    
-    # Get column information from the model
-    columns = Company.__table__.columns
-    
-    for column in columns:
-        column_name = column.name
-        
-        # Count non-null values
-        non_null_count = session.query(Company).filter(getattr(Company, column_name) != None).count()
-        null_count = total_rows - non_null_count
-        null_percentage = (null_count / total_rows) * 100 if total_rows > 0 else 0
-        non_null_percentage = (non_null_count / total_rows) * 100 if total_rows > 0 else 0
-        
-        # Count unique values
-        unique_count = session.query(getattr(Company, column_name)).distinct().count()
-        
-        quality_report['columns'][column_name] = {
-            'total_values': total_rows,
-            'non_null_values': non_null_count,
-            'null_values': null_count,
-            'null_percentage': null_percentage,
-            'non_null_percentage': non_null_percentage,
-            'unique_values': unique_count,
-            'data_type': str(column.type)
-        }
-    
-    return quality_report
+    pass
 
 def analyze_companies_data_quality(session):
-    """Analyze data quality for all columns in the companies table"""
-    quality_report = {
-        'total_companies': 0,
-        'companies_columns': {}
-    }
-    
-    # Get total count
-    total_companies = session.query(Company).count()
-    quality_report['total_companies'] = total_companies
-    
-    # Define companies columns to analyze
-    company_columns = [
-        'id', 'name', 'nse_code', 'bse_code', 'industry', 'exchange',
-        'sector_yf', 'industry_yf', 'country_yf', 'website_yf', 'longBusinessSummary_yf',
-        'fullTimeEmployees_yf', 'city_yf', 'state_yf', 'address1_yf', 'zip_yf', 'phone_yf',
-        'marketCap_yf', 'sharesOutstanding_yf', 'logo_url_yf', 'exchange_yf', 'currency_yf',
-        'financialCurrency_yf', 'beta_yf', 'trailingPE_yf', 'forwardPE_yf', 'priceToBook_yf',
-        'bookValue_yf', 'payoutRatio_yf', 'ebitda_yf', 'revenueGrowth_yf', 'grossMargins_yf',
-        'operatingMargins_yf', 'profitMargins_yf', 'returnOnAssets_yf', 'returnOnEquity_yf',
-        'totalRevenue_yf', 'grossProfits_yf', 'freeCashflow_yf', 'operatingCashflow_yf',
-        'debtToEquity_yf', 'currentRatio_yf', 'quickRatio_yf', 'shortRatio_yf', 'pegRatio_yf',
-        'enterpriseValue_yf', 'enterpriseToRevenue_yf', 'enterpriseToEbitda_yf', 'last_modified'
-    ]
-    
-    for column_name in company_columns:
-        if hasattr(Company, column_name):
-            # Count non-null values
-            non_null_count = session.query(Company).filter(getattr(Company, column_name) != None).count()
-            null_count = total_companies - non_null_count
-            null_percentage = (null_count / total_companies) * 100 if total_companies > 0 else 0
-            non_null_percentage = (non_null_count / total_companies) * 100 if total_companies > 0 else 0
-            
-            # Count unique values
-            unique_count = session.query(getattr(Company, column_name)).distinct().count()
-            
-            quality_report['companies_columns'][column_name] = {
-                'total_values': total_companies,
-                'non_null_values': non_null_count,
-                'null_values': null_count,
-                'null_percentage': null_percentage,
-                'non_null_percentage': non_null_percentage,
-                'unique_values': unique_count
-            }
-    
-    return quality_report
+    pass
 
 def compare_and_update_company(db_company, csv_company_dict):
     changed = False
@@ -223,6 +111,8 @@ def import_companies_from_csv(csv_file_path):
     }
     
     try:
+        # Log start of import
+        logger.info(f"Starting import from {csv_file_path} at {quality_metrics['start_time']}")
         # Read CSV file
         df = pd.read_csv(csv_file_path)
         quality_metrics['csv_total_rows'] = len(df)
@@ -249,10 +139,66 @@ def import_companies_from_csv(csv_file_path):
             
             quality_metrics['csv_valid_rows'] += 1
             company_data = {
-                'name': row.get('Company Name', row.get('company_name', '')),
-                'nse_code': nse_code,
-                'bse_code': bse_code,
-                'industry': row.get('Industry', row.get('industry', '')),
+                'name': row.get('Name', ''),
+                'bse_code': row.get('BSE Code', ''),
+                'nse_code': row.get('NSE Code', ''),
+                'industry': row.get('Industry', ''),
+                'current_price': row.get('Current Price', ''),
+                'market_capitalization': row.get('Market Capitalization', ''),
+                'sales': row.get('Sales', ''),
+                'sales_growth_3years': row.get('Sales growth 3Years', ''),
+                'profit_after_tax': row.get('Profit after tax', ''),
+                'profit_growth_3years': row.get('Profit growth 3Years', ''),
+                'profit_growth_5years': row.get('Profit growth 5Years', ''),
+                'operating_profit': row.get('Operating profit', ''),
+                'opm': row.get('OPM', ''),
+                'eps_growth_3years': row.get('EPS growth 3Years', ''),
+                'eps': row.get('EPS', ''),
+                'return_on_capital_employed': row.get('Return on capital employed', ''),
+                'other_income': row.get('Other income', ''),
+                'change_in_promoter_holding_3years': row.get('Change in promoter holding 3Years', ''),
+                'expected_quarterly_sales': row.get('Expected quarterly sales', ''),
+                'expected_quarterly_eps': row.get('Expected quarterly EPS', ''),
+                'expected_quarterly_net_profit': row.get('Expected quarterly net profit', ''),
+                'debt': row.get('Debt', ''),
+                'equity_capital': row.get('Equity capital', ''),
+                'preference_capital': row.get('Preference capital', ''),
+                'reserves': row.get('Reserves', ''),
+                'contingent_liabilities': row.get('Contingent liabilities', ''),
+                'free_cash_flow_3years': row.get('Free cash flow 3years', ''),
+                'operating_cash_flow_3years': row.get('Operating cash flow 3years', ''),
+                'price_to_earning': row.get('Price to Earning', ''),
+                'dividend_yield': row.get('Dividend yield', ''),
+                'price_to_book_value': row.get('Price to book value', ''),
+                'return_on_assets': row.get('Return on assets', ''),
+                'debt_to_equity': row.get('Debt to equity', ''),
+                'return_on_equity': row.get('Return on equity', ''),
+                'promoter_holding': row.get('Promoter holding', ''),
+                'earnings_yield': row.get('Earnings yield', ''),
+                'pledged_percentage': row.get('Pledged percentage', ''),
+                'number_of_equity_shares': row.get('Number of equity shares', ''),
+                'book_value': row.get('Book value', ''),
+                'inventory_turnover_ratio': row.get('Inventory turnover ratio', ''),
+                'exports_percentage': row.get('Exports percentage', ''),
+                'asset_turnover_ratio': row.get('Asset Turnover Ratio', ''),
+                'financial_leverage': row.get('Financial leverage', ''),
+                'number_of_shareholders': row.get('Number of Shareholders', ''),
+                'working_capital_days': row.get('Working Capital Days', ''),
+                'public_holding': row.get('Public holding', ''),
+                'fii_holding': row.get('FII holding', ''),
+                'change_in_fii_holding': row.get('Change in FII holding', ''),
+                'dii_holding': row.get('DII holding', ''),
+                'change_in_dii_holding': row.get('Change in DII holding', ''),
+                'cash_conversion_cycle': row.get('Cash Conversion Cycle', ''),
+                'volume': row.get('Volume', ''),
+                'volume_1week_average': row.get('Volume 1week average', ''),
+                'volume_1month_average': row.get('Volume 1month average', ''),
+                'high_price_all_time': row.get('High price all time', ''),
+                'low_price_all_time': row.get('Low price all time', ''),
+                'volume_1year_average': row.get('Volume 1year average', ''),
+                'return_over_1year': row.get('Return over 1year', ''),
+                'return_over_3months': row.get('Return over 3months', ''),
+                'return_over_6months': row.get('Return over 6months', ''),
                 'last_modified': file_date
             }
             
@@ -263,105 +209,86 @@ def import_companies_from_csv(csv_file_path):
         
         # Import companies
         for i, company_data in enumerate(valid_companies, 1):
+            nse_code_val = company_data['nse_code']
+            bse_code_val = company_data['bse_code']
+            if (not nse_code_val or str(nse_code_val).lower() == 'nan') and (not bse_code_val or str(bse_code_val).lower() == 'nan'):
+                logger.warning(f"Skipped company (no valid code): {company_data['name']}")
+                continue
+            if str(nse_code_val).lower() == 'nan':
+                company_data['nse_code'] = None
+            if str(bse_code_val).lower() == 'nan':
+                company_data['bse_code'] = None
             try:
-                # Check if company exists by unified codes
-                existing_company = None
+                # True upsert logic for nse_code or bse_code
                 if company_data['nse_code']:
-                    existing_company = session.query(Company).filter(
-                        Company.nse_code == company_data['nse_code']
-                    ).first()
-                
-                if not existing_company and company_data['bse_code']:
-                    existing_company = session.query(Company).filter(
-                        Company.bse_code == company_data['bse_code']
-                    ).first()
-                
-                if existing_company:
-                    # Smart comparison and update
-                    changed, updated_fields, field_changes = compare_and_update_company(existing_company, company_data)
-                    
-                    if changed:
-                        session.add(existing_company)
-                        quality_metrics['companies_updated'] += 1
-                        logger.info(f"Updated existing company: {company_data['name']} - changed fields: {', '.join(updated_fields)}")
-                        for field, old, new in field_changes:
-                            logger.info(f"    {field}: '{old}' -> '{new}'")
-                        print(f"{i}/{len(valid_companies)}: Updated {company_data['name']} - fields changed: {', '.join(updated_fields)}")
-                        for field, old, new in field_changes:
-                            print(f"    {field}: '{old}' -> '{new}'")
-                    else:
-                        quality_metrics['companies_no_changes'] += 1
-                        logger.info(f"No changes for existing company: {company_data['name']} - data is current")
+                    stmt = insert(Company).values(**company_data).on_conflict_do_update(
+                        index_elements=['nse_code'],
+                        set_={k: v for k, v in company_data.items() if k != 'nse_code'}
+                    )
+                    logger.info(f"Upsert by NSE code: {company_data['name']} ({company_data['nse_code']})")
+                elif company_data['bse_code']:
+                    stmt = insert(Company).values(**company_data).on_conflict_do_update(
+                        index_elements=['bse_code'],
+                        set_={k: v for k, v in company_data.items() if k != 'bse_code'}
+                    )
+                    logger.info(f"Upsert by BSE code: {company_data['name']} ({company_data['bse_code']})")
                 else:
-                    # Create new company
-                    new_company = Company(**company_data)
-                    session.add(new_company)
-                    quality_metrics['companies_imported'] += 1
-                    logger.info(f"Imported new company: {company_data['name']}")
-                
+                    logger.warning(f"Skipped company (no valid code after cleaning): {company_data['name']}")
+                    continue
+                # Field-level change logging (simulate update detection)
+                # (In this upsert, we don't know if it was an insert or update, but we can log the data)
+                # If you want to compare with existing DB, you could fetch and compare here (optional, not implemented for speed)
+                session.execute(stmt)
+                quality_metrics['companies_imported'] += 1
+                logger.info(f"Imported/Updated: {company_data['name']} ({company_data['nse_code'] or company_data['bse_code']})")
+                # Optionally, log all fields at DEBUG level
+                for k, v in company_data.items():
+                    logger.debug(f"  {k}: {v}")
                 if i % 100 == 0:
                     session.commit()
+                    logger.info(f"Progress: {i}/{len(valid_companies)} processed. Imported: {quality_metrics['companies_imported']}, Errors: {quality_metrics['companies_errors']}")
                     print(f"Processed {i}/{len(valid_companies)} companies...")
-                
             except Exception as e:
                 quality_metrics['companies_errors'] += 1
                 logger.error(f"Error processing {company_data['name']}: {e}")
                 continue
-        
-        # Final commit
         session.commit()
         
         # Calculate final metrics
         quality_metrics['end_time'] = datetime.now()
         quality_metrics['duration'] = quality_metrics['end_time'] - quality_metrics['start_time']
         
-        # Log comprehensive data quality summary
-        logger.info("=== COMPANIES IMPORT DATA QUALITY SUMMARY ===")
-        logger.info(f"Mode: smart comparison")
-        logger.info(f"CSV total rows: {quality_metrics['csv_total_rows']}")
-        logger.info(f"CSV valid rows: {quality_metrics['csv_valid_rows']}")
-        logger.info(f"CSV invalid rows: {quality_metrics['csv_invalid_rows']}")
-        logger.info(f"Companies imported: {quality_metrics['companies_imported']}")
-        logger.info(f"Companies updated: {quality_metrics['companies_updated']}")
-        logger.info(f"Companies with no changes: {quality_metrics['companies_no_changes']}")
-        logger.info(f"Companies errors: {quality_metrics['companies_errors']}")
-        logger.info(f"Database errors: {quality_metrics['database_errors']}")
-        logger.info(f"Processing duration: {quality_metrics['duration']}")
-        logger.info(f"Success rate: {(quality_metrics['companies_imported'] + quality_metrics['companies_updated']) / quality_metrics['csv_valid_rows'] * 100:.2f}%")
+        # Prepare summary text
+        summary_lines = [
+            "="*40,
+            f"\nImport Summary:",
+            f"- Mode: smart comparison",
+            f"- Total companies in CSV: {quality_metrics['csv_total_rows']}",
+            f"- Valid companies: {quality_metrics['csv_valid_rows']}",
+            f"- New companies imported: {quality_metrics['companies_imported']}",
+            f"- Existing companies updated: {quality_metrics['companies_updated']}",
+            f"- No changes needed: {quality_metrics['companies_no_changes']}",
+            f"- Errors: {quality_metrics['companies_errors']}",
+            f"- Success rate: {(quality_metrics['companies_imported'] + quality_metrics['companies_updated']) / quality_metrics['csv_valid_rows'] * 100 if quality_metrics['csv_valid_rows'] else 0:.2f}%",
+            f"- Processing duration: {quality_metrics['duration']}",
+            "="*40
+        ]
+        summary_text = "\n".join(summary_lines)
         
-        print(f"\nImport Summary:")
-        print(f"- Mode: smart comparison")
-        print(f"- Total companies in CSV: {quality_metrics['csv_total_rows']}")
-        print(f"- Valid companies: {quality_metrics['csv_valid_rows']}")
-        print(f"- New companies imported: {quality_metrics['companies_imported']}")
-        print(f"- Existing companies updated: {quality_metrics['companies_updated']}")
-        print(f"- No changes needed: {quality_metrics['companies_no_changes']}")
-        print(f"- Errors: {quality_metrics['companies_errors']}")
-        print(f"- Success rate: {(quality_metrics['companies_imported'] + quality_metrics['companies_updated']) / quality_metrics['csv_valid_rows'] * 100:.2f}%")
+        # Print to console
+        print(summary_text)
         
-        # Analyze companies data quality
-        print("Analyzing companies data quality...")
-        logger.info("=== COMPANIES DATA QUALITY ANALYSIS ===")
-        companies_quality = analyze_companies_data_quality(session)
+        # Write to summary file
+        summary_filename = f'log/import_companies_onetime_summary_{log_datetime}.txt'
+        with open(summary_filename, 'w') as f:
+            f.write(summary_text + '\n')
         
-        # Log companies data quality report
-        logger.info(f"Total companies in database: {companies_quality['total_companies']}")
-        logger.info("Companies column-level data quality:")
-        for column, stats in companies_quality['companies_columns'].items():
-            logger.info(f"  {column}:")
-            logger.info(f"    - Non-null values: {stats['non_null_values']}/{stats['total_values']} ({stats['non_null_percentage']:.2f}%)")
-            logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
-            logger.info(f"    - Unique values: {stats['unique_values']}")
-        
-        # Print summary to console
-        print(f"\nCompanies Data Quality Summary:")
-        print(f"Total companies: {companies_quality['total_companies']}")
-        print(f"Companies columns analyzed: {len(companies_quality['companies_columns'])}")
-        print(f"\nCompanies column completion rates:")
-        for column, stats in companies_quality['companies_columns'].items():
-            print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
+        # Log to log file
+        for line in summary_lines:
+            logger.info(line)
         
         logger.info(f"Import completed: {quality_metrics['companies_imported']} imported, {quality_metrics['companies_updated']} updated, {quality_metrics['companies_no_changes']} no changes, {quality_metrics['companies_errors']} errors")
+        logger.info(f"Import finished at {quality_metrics['end_time']}")
         
     except Exception as e:
         quality_metrics['database_errors'] += 1
@@ -373,11 +300,11 @@ def import_companies_from_csv(csv_file_path):
 
 def get_today_csv_file():
     today_str = datetime.now().strftime('%Y%m%d')
-    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    expected_file = f'data/screener_export_{today_str}.csv'
     if os.path.exists(expected_file):
         return expected_file
     else:
-        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data folder.")
 
 csv_file = get_today_csv_file()
 

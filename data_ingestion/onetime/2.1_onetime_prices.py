@@ -20,6 +20,8 @@ import math
 import logging
 import re
 import glob
+import argparse
+from sqlalchemy.dialects.postgresql import insert
 
 DATABASE_URL = 'postgresql://stockuser:stockpass@localhost:5432/stockdb'
 engine = create_engine(DATABASE_URL)
@@ -57,7 +59,7 @@ def get_yfinance_ticker(company):
         return f"{bse_code_str}.BO", 'BSE'
     return None, None
 
-def fetch_and_store_prices(limit=None, batch_size=25):
+def fetch_and_store_prices(days=None, batch_size=25):
     """
     Fetches historical daily prices for all companies using unified codes.
     """
@@ -80,6 +82,10 @@ def fetch_and_store_prices(limit=None, batch_size=25):
         'api_errors': 0,
         'database_errors': 0
     }
+    # Get total price records before import
+    from sqlalchemy import func
+    price_count_before = session.query(func.count(Price.id)).scalar()
+    logger.info(f"Starting price import at {quality_metrics['start_time']}. Price records before import: {price_count_before}")
     
     # Get companies with valid codes
     query = session.query(Company).filter(
@@ -88,10 +94,7 @@ def fetch_and_store_prices(limit=None, batch_size=25):
             and_(Company.bse_code != None, Company.bse_code != "")
         )
     )
-    if limit is not None:
-        companies = query.limit(limit).all()
-    else:
-        companies = query.all()
+    companies = query.all()
     
     quality_metrics['total_companies'] = len(companies)
     total = len(companies)
@@ -105,14 +108,8 @@ def fetch_and_store_prices(limit=None, batch_size=25):
         # Get the preferred company code
         company_code = company.nse_code if company.nse_code else company.bse_code
         
-        # Check if company already has price data
-        if session.query(Price).filter_by(company_code=company_code).first():
-            logger.info(f"Skipping {company.name} ({company_code}) - already has price data.")
-            skipped += 1
-            quality_metrics['companies_skipped_already_have_data'] += 1
-            print(f"{count + skipped}/{total}: {company.name} skipped (already has price data).")
-            continue
-        
+        # Remove the block that skips companies with any price data
+        # Always fetch price data for all companies
         ticker, exchange = get_yfinance_ticker(company)
         if ticker:
             company_ticker_map.append((company, ticker, exchange, company_code))
@@ -123,12 +120,16 @@ def fetch_and_store_prices(limit=None, batch_size=25):
         batch = company_ticker_map[i:i+batch_size]
         tickers = [t[1] for t in batch]
         ticker_to_company = {t[1]: (t[0], t[2], t[3]) for t in batch}
+        batch_num = i // batch_size + 1
+        logger.info(f"Batch {batch_num} started")
+        logger.info(f"Processing batch {batch_num}: {tickers}")
         
         # Retry logic for the batch
         for attempt in range(3):
             try:
                 quality_metrics['api_calls'] += 1
-                df = yf.download(tickers, period="10y", interval="1d", group_by='ticker', progress=False, auto_adjust=False)
+                period = f"{days}d" if days else "10y"
+                df = yf.download(tickers, period=period, interval="1d", group_by='ticker', progress=False, auto_adjust=False)
                 break
             except Exception as e:
                 quality_metrics['api_errors'] += 1
@@ -156,6 +157,7 @@ def fetch_and_store_prices(limit=None, batch_size=25):
                 company.yf_not_found = 1
                 session.merge(company)
                 quality_metrics['companies_no_yf_data'] += 1
+                logger.info(f"Skipped company (no yfinance data): {company.name} ({ticker})")
                 continue
             else:
                 company.yf_not_found = 0
@@ -244,7 +246,36 @@ def fetch_and_store_prices(limit=None, batch_size=25):
             
             if new_prices:
                 try:
-                    session.bulk_save_objects(new_prices)
+                    for idx, price in enumerate(new_prices):
+                        stmt = insert(Price).values(
+                            company_id=price.company_id,
+                            company_code=price.company_code,
+                            company_name=price.company_name,
+                            date=price.date,
+                            open=price.open,
+                            high=price.high,
+                            low=price.low,
+                            close=price.close,
+                            volume=price.volume,
+                            adj_close=price.adj_close,
+                            last_modified=price.last_modified
+                        ).on_conflict_do_update(
+                            index_elements=['company_id', 'date'],
+                            set_={
+                                'open': price.open,
+                                'high': price.high,
+                                'low': price.low,
+                                'close': price.close,
+                                'volume': price.volume,
+                                'adj_close': price.adj_close,
+                                'last_modified': price.last_modified,
+                                'company_code': price.company_code,
+                                'company_name': price.company_name
+                            }
+                        )
+                        session.execute(stmt)
+                        if idx == 0:
+                            logger.info(f"Upserted first new price for {company.name} (total new: {len(new_prices)})")
                     session.commit()
                 except Exception as e:
                     quality_metrics['database_errors'] += 1
@@ -253,30 +284,41 @@ def fetch_and_store_prices(limit=None, batch_size=25):
             
             count += 1
             quality_metrics['companies_processed'] += 1
-            logger.info(f"{count + skipped}/{total}: {company.name} ({ticker}, {exchange}) done. Added {len(new_prices)} new prices.")
-            print(f"{count + skipped}/{total}: {company.name} ({ticker}, {exchange}) done.")
+            if count % 100 == 0:
+                logger.info(f"Progress: {count}/{total} companies processed. New prices: {quality_metrics['new_price_records']}, Duplicates: {quality_metrics['duplicate_price_records']}, Errors: {quality_metrics['database_errors']}")
     
     # Calculate final metrics
     quality_metrics['end_time'] = datetime.now()
     quality_metrics['duration'] = quality_metrics['end_time'] - quality_metrics['start_time']
-    
+    # Get total price records after import
+    price_count_after = session.query(func.count(Price.id)).scalar()
+    net_change = price_count_after - price_count_before
     # Log comprehensive data quality summary
-    logger.info("=== DATA QUALITY SUMMARY ===")
-    logger.info(f"Total companies: {quality_metrics['total_companies']}")
-    logger.info(f"Companies with valid codes: {quality_metrics['companies_with_valid_codes']}")
-    logger.info(f"Companies skipped (already have data): {quality_metrics['companies_skipped_already_have_data']}")
-    logger.info(f"Companies processed: {quality_metrics['companies_processed']}")
-    logger.info(f"Companies with no yfinance data: {quality_metrics['companies_no_yf_data']}")
-    logger.info(f"Companies with API errors: {quality_metrics['companies_api_errors']}")
-    logger.info(f"Total price records fetched: {quality_metrics['total_price_records']}")
-    logger.info(f"New price records inserted: {quality_metrics['new_price_records']}")
-    logger.info(f"Duplicate price records (skipped): {quality_metrics['duplicate_price_records']}")
-    logger.info(f"Invalid price records: {quality_metrics['invalid_price_records']}")
-    logger.info(f"API calls made: {quality_metrics['api_calls']}")
-    logger.info(f"API errors: {quality_metrics['api_errors']}")
-    logger.info(f"Database errors: {quality_metrics['database_errors']}")
-    logger.info(f"Processing duration: {quality_metrics['duration']}")
-    logger.info(f"Success rate: {quality_metrics['companies_processed'] / quality_metrics['companies_with_valid_codes'] * 100:.2f}%")
+    summary_lines = [
+        "="*40,
+        f"\nPRICES IMPORT SUMMARY:",
+        f"- Total companies: {quality_metrics['total_companies']}",
+        f"- Companies with valid codes: {quality_metrics['companies_with_valid_codes']}",
+        f"- Companies processed: {quality_metrics['companies_processed']}",
+        f"- Companies with no yfinance data: {quality_metrics['companies_no_yf_data']}",
+        f"- Companies with API errors: {quality_metrics['companies_api_errors']}",
+        f"- Total price records fetched: {quality_metrics['total_price_records']}",
+        f"- New price records inserted: {quality_metrics['new_price_records']}",
+        f"- Duplicate price records (skipped): {quality_metrics['duplicate_price_records']}",
+        f"- Invalid price records: {quality_metrics['invalid_price_records']}",
+        f"- API calls made: {quality_metrics['api_calls']}",
+        f"- API errors: {quality_metrics['api_errors']}",
+        f"- Database errors: {quality_metrics['database_errors']}",
+        f"- Processing duration: {quality_metrics['duration']}",
+        f"- Success rate: {quality_metrics['companies_processed'] / quality_metrics['companies_with_valid_codes'] * 100 if quality_metrics['companies_with_valid_codes'] else 0:.2f}%",
+        f"- Price records before import: {price_count_before}",
+        f"- Price records after import: {price_count_after}",
+        f"- Net change in price records: {net_change}",
+        "="*40
+    ]
+    for line in summary_lines:
+        logger.info(line)
+    logger.info(f"Price import finished at {quality_metrics['end_time']}")
     
     # Analyze prices data quality
     print("Analyzing prices data quality...")
@@ -293,13 +335,22 @@ def fetch_and_store_prices(limit=None, batch_size=25):
         logger.info(f"    - Null values: {stats['null_values']}/{stats['total_values']} ({stats['null_percentage']:.2f}%)")
         logger.info(f"    - Unique values: {stats['unique_values']}")
     
-    # Print summary to console
-    print(f"\nPrices Data Quality Summary:")
+    # Print final summary
+    print("\nPrices Data Quality Summary:")
     print(f"Total price records: {prices_quality['total_prices']}")
     print(f"Total columns: {len(prices_quality['columns'])}")
-    print(f"\nPrices column completion rates:")
+    print("\nPrices column completion rates:")
     for column, stats in prices_quality['columns'].items():
         print(f"  {column}: {stats['non_null_percentage']:.1f}% complete ({stats['non_null_values']}/{stats['total_values']})")
+
+    # Print last 10 days data count
+    from sqlalchemy import func
+    last_10_days = session.query(Price.date).order_by(Price.date.desc()).distinct().limit(10).all()
+    last_10_days = [d[0] for d in last_10_days]
+    print("\nPrice record counts for last 10 days:")
+    for d in sorted(last_10_days):
+        count = session.query(Price).filter(Price.date == d).count()
+        print(f"{d}: {count}")
     
     logger.info(f"Done. Prices updated for {count} companies.")
     session.close()
@@ -358,19 +409,16 @@ def analyze_prices_data_quality(session):
 
 def get_today_csv_file():
     today_str = datetime.now().strftime('%Y%m%d')
-    expected_file = f'data_ingestion/screener_export_{today_str}.csv'
+    expected_file = f'data/screener_export_{today_str}.csv'
     if os.path.exists(expected_file):
         return expected_file
     else:
-        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data_ingestion folder.")
+        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data folder.")
 
 csv_file = get_today_csv_file()
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == 'fetch':
-        if len(sys.argv) > 2 and sys.argv[2].isdigit():
-            fetch_and_store_prices(limit=int(sys.argv[2]))
-        else:
-            fetch_and_store_prices()
-    else:
-        fetch_and_store_prices() 
+    parser = argparse.ArgumentParser(description='Fetch historical prices for all companies.')
+    parser.add_argument('--days', type=int, default=None, help='Number of days to fetch (default: 10y)')
+    args = parser.parse_args()
+    fetch_and_store_prices(days=args.days) 
