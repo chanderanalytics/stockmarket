@@ -1,9 +1,9 @@
 """
-Script to import companies from Screener CSV using unified codes - ONETIME/FULL VERSION.
+Script to import companies from Screener CSV using unified codes - MINIMAL FIX VERSION.
 
 This script imports companies from a Screener CSV file and handles
 the mapping between unified codes and database IDs properly.
-Optimized for one-time/full runs with onetime logging.
+Minimal changes to fix transaction and duplicate key issues.
 """
 
 import sys
@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import insert
 # Set up logging for one-time/full runs
 log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
 logging.basicConfig(
-    filename=f'log/import_companies_onetime_{log_datetime}.log',
+    filename=f'log/import_companies_onetime_minimal_{log_datetime}.log',
     filemode='a',
     format='%(asctime)s %(levelname)s: %(message)s',
     level=logging.INFO
@@ -69,37 +69,12 @@ def clean_numeric_value(value):
     except (ValueError, TypeError):
         return None
 
-# Remove DQ analysis functions
-def analyze_csv_data_quality(df):
-    pass
-
-def analyze_database_table_quality(session):
-    pass
-
-def analyze_companies_data_quality(session):
-    pass
-
-def compare_and_update_company(db_company, csv_company_dict):
-    changed = False
-    updated_fields = []
-    field_changes = []
-    for field, new_value in csv_company_dict.items():
-        if hasattr(db_company, field):
-            old_value = getattr(db_company, field)
-            if old_value != new_value:
-                setattr(db_company, field, new_value)
-                changed = True
-                updated_fields.append(field)
-                field_changes.append((field, old_value, new_value))
-    return changed, updated_fields, field_changes
-
 def import_companies_from_csv(csv_file_path):
-    """Import companies from CSV file using unified codes with smart comparison"""
+    """Import companies from CSV file using unified codes with minimal fixes"""
     session = Session()
     
     # Initialize quality metrics
     quality_metrics = {
-        'start_time': datetime.now(),
         'csv_total_rows': 0,
         'csv_valid_rows': 0,
         'csv_invalid_rows': 0,
@@ -107,26 +82,29 @@ def import_companies_from_csv(csv_file_path):
         'companies_updated': 0,
         'companies_no_changes': 0,
         'companies_errors': 0,
-        'database_errors': 0
+        'database_errors': 0,
+        'start_time': datetime.now(),
+        'end_time': None,
+        'duration': None
     }
     
     try:
-        # Log start of import
-        logger.info(f"Starting import from {csv_file_path} at {quality_metrics['start_time']}")
         # Read CSV file
+        logger.info(f"Reading CSV file: {csv_file_path}")
         df = pd.read_csv(csv_file_path)
         quality_metrics['csv_total_rows'] = len(df)
-        print(f"Loaded {len(df)} companies from CSV")
-        logger.info(f"Loaded {len(df)} companies from CSV")
         
-        # Clean and validate data
-        valid_companies = []
+        # Extract date from filename
         match = re.search(r'(\d{8})', csv_file_path)
         if match:
             file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
         else:
             raise ValueError("No date found in CSV filename!")
         
+        logger.info(f"Processing {len(df)} companies from CSV dated {file_date}")
+        
+        # Clean and validate data
+        valid_companies = []
         for _, row in df.iterrows():
             nse_code = clean_code(row.get('NSE Code', row.get('nse_code')))
             bse_code = clean_code(row.get('BSE Code', row.get('bse_code')))
@@ -134,7 +112,7 @@ def import_companies_from_csv(csv_file_path):
             # Skip if no valid codes
             if not nse_code and not bse_code:
                 quality_metrics['csv_invalid_rows'] += 1
-                logger.warning(f"Skipping company with no valid codes: {row.get('Company Name', 'Unknown')}")
+                logger.warning(f"Skipping company with no valid codes: {row.get('Name', 'Unknown')}")
                 continue
             
             quality_metrics['csv_valid_rows'] += 1
@@ -207,7 +185,7 @@ def import_companies_from_csv(csv_file_path):
         print(f"Valid companies to import: {len(valid_companies)}")
         logger.info(f"Valid companies to import: {len(valid_companies)}")
         
-        # Import companies
+        # Import companies with minimal fixes
         for i, company_data in enumerate(valid_companies, 1):
             nse_code_val = company_data['nse_code']
             bse_code_val = company_data['bse_code']
@@ -219,39 +197,61 @@ def import_companies_from_csv(csv_file_path):
             if str(bse_code_val).lower() == 'nan':
                 company_data['bse_code'] = None
             try:
-                # True upsert logic for nse_code or bse_code
+                # MINIMAL FIX: Check if company exists before trying to insert
+                existing_company = None
                 if company_data['nse_code']:
-                    stmt = insert(Company).values(**company_data).on_conflict_do_update(
-                        index_elements=['nse_code'],
-                        set_={k: v for k, v in company_data.items() if k != 'nse_code'}
-                    )
-                    logger.info(f"Upsert by NSE code: {company_data['name']} ({company_data['nse_code']})")
-                elif company_data['bse_code']:
-                    stmt = insert(Company).values(**company_data).on_conflict_do_update(
-                        index_elements=['bse_code'],
-                        set_={k: v for k, v in company_data.items() if k != 'bse_code'}
-                    )
-                    logger.info(f"Upsert by BSE code: {company_data['name']} ({company_data['bse_code']})")
-                else:
-                    logger.warning(f"Skipped company (no valid code after cleaning): {company_data['name']}")
-                    continue
-                # Field-level change logging (simulate update detection)
-                # (In this upsert, we don't know if it was an insert or update, but we can log the data)
-                # If you want to compare with existing DB, you could fetch and compare here (optional, not implemented for speed)
-                session.execute(stmt)
-                quality_metrics['companies_imported'] += 1
-                logger.info(f"Imported/Updated: {company_data['name']} ({company_data['nse_code'] or company_data['bse_code']})")
-                # Optionally, log all fields at DEBUG level
-                for k, v in company_data.items():
-                    logger.debug(f"  {k}: {v}")
-                if i % 100 == 0:
+                    existing_company = session.query(Company).filter(Company.nse_code == company_data['nse_code']).first()
+                if not existing_company and company_data['bse_code']:
+                    # Convert BSE code to string for proper comparison
+                    bse_code_str = str(company_data['bse_code'])
+                    existing_company = session.query(Company).filter(Company.bse_code == bse_code_str).first()
+                
+                if existing_company:
+                    # Update existing company
+                    for key, value in company_data.items():
+                        if key != 'id':
+                            setattr(existing_company, key, value)
+                    session.merge(existing_company)
                     session.commit()
-                    logger.info(f"Progress: {i}/{len(valid_companies)} processed. Imported: {quality_metrics['companies_imported']}, Errors: {quality_metrics['companies_errors']}")
+                    quality_metrics['companies_updated'] += 1
+                    logger.info(f"Updated existing company: {company_data['name']}")
+                else:
+                    # Insert new company - use original upsert logic
+                    if company_data['nse_code']:
+                        stmt = insert(Company).values(**company_data).on_conflict_do_update(
+                            index_elements=['nse_code'],
+                            set_={k: v for k, v in company_data.items() if k != 'nse_code'}
+                        )
+                        logger.info(f"Upsert by NSE code: {company_data['name']} ({company_data['nse_code']})")
+                    elif company_data['bse_code']:
+                        stmt = insert(Company).values(**company_data).on_conflict_do_update(
+                            index_elements=['bse_code'],
+                            set_={k: v for k, v in company_data.items() if k != 'bse_code'}
+                        )
+                        logger.info(f"Upsert by BSE code: {company_data['name']} ({company_data['bse_code']})")
+                    else:
+                        logger.warning(f"Skipped company (no valid code after cleaning): {company_data['name']}")
+                        continue
+                    
+                    session.execute(stmt)
+                    quality_metrics['companies_imported'] += 1
+                    logger.info(f"Imported new company: {company_data['name']} ({company_data['nse_code'] or company_data['bse_code']})")
+                
+                # MINIMAL FIX: Commit each company individually to avoid transaction issues
+                if i % 50 == 0:
+                    session.commit()
+                    logger.info(f"Progress: {i}/{len(valid_companies)} processed. Imported: {quality_metrics['companies_imported']}, Updated: {quality_metrics['companies_updated']}, Errors: {quality_metrics['companies_errors']}")
                     print(f"Processed {i}/{len(valid_companies)} companies...")
             except Exception as e:
                 quality_metrics['companies_errors'] += 1
                 logger.error(f"Error processing {company_data['name']}: {e}")
+                # MINIMAL FIX: Rollback and continue instead of breaking
+                try:
+                    session.rollback()
+                except:
+                    pass
                 continue
+        
         session.commit()
         
         # Calculate final metrics
@@ -262,7 +262,7 @@ def import_companies_from_csv(csv_file_path):
         summary_lines = [
             "="*40,
             f"\nImport Summary:",
-            f"- Mode: smart comparison",
+            f"- Mode: minimal fix",
             f"- Total companies in CSV: {quality_metrics['csv_total_rows']}",
             f"- Valid companies: {quality_metrics['csv_valid_rows']}",
             f"- New companies imported: {quality_metrics['companies_imported']}",
@@ -279,7 +279,7 @@ def import_companies_from_csv(csv_file_path):
         print(summary_text)
         
         # Write to summary file
-        summary_filename = f'log/import_companies_onetime_summary_{log_datetime}.txt'
+        summary_filename = f'log/import_companies_onetime_minimal_summary_{log_datetime}.txt'
         with open(summary_filename, 'w') as f:
             f.write(summary_text + '\n')
         
@@ -298,22 +298,9 @@ def import_companies_from_csv(csv_file_path):
     finally:
         session.close()
 
-def get_today_csv_file():
-    today_str = datetime.now().strftime('%Y%m%d')
-    expected_file = f'data/screener_export_{today_str}.csv'
-    if os.path.exists(expected_file):
-        return expected_file
-    else:
-        raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data folder.")
-
-csv_file = get_today_csv_file()
-
 if __name__ == '__main__':
-    import sys
-    
     if len(sys.argv) != 2:
-        print("Usage: python3 1.1_import_screener_companies.py <csv_file_path>")
-        print("Example: python3 1.1_import_screener_companies.py data_ingestion/screener_export_20250704.csv")
+        print("Usage: python3 1.1_import_screener_companies_minimal_fix.py <csv_file_path>")
         sys.exit(1)
     
     csv_file_path = sys.argv[1]

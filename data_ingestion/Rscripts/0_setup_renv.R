@@ -12,7 +12,7 @@ if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv")
 
 # 3. Install required packages
 required_packages <- c("DBI", "RPostgres", "dplyr", "zoo", "data.table","futile.logger",
-"httr","jsonlite")
+"httr","jsonlite","TTR","stringr")
 for (pkg in required_packages) {
   if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
 }
@@ -27,6 +27,8 @@ library(zoo)
 library(futile.logger)
 library(httr)
 library(jsonlite)
+library(TTR)
+library(stringr)
 
 # 4. Snapshot the environment (records exact package versions)
 renv::snapshot()

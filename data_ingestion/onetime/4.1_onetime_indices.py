@@ -145,7 +145,7 @@ def populate_indices_table():
     finally:
         session.close()
 
-def fetch_and_store_indices_prices(days=None):
+def fetch_and_store_indices_prices(days=None, csv_file_path=None):
     """
     Fetch historical prices for major indices.
     Uses smart comparison to only insert new price records.
@@ -154,6 +154,16 @@ def fetch_and_store_indices_prices(days=None):
     populate_indices_table()
     
     session = Session()
+    
+    # Use CSV file date if provided, otherwise use yesterday's date
+    if csv_file_path and os.path.exists(csv_file_path):
+        match = re.search(r'(\d{8})', csv_file_path)
+        if match:
+            file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+        else:
+            file_date = (datetime.now() - timedelta(days=1)).date()
+    else:
+        file_date = (datetime.now() - timedelta(days=1)).date()
     
     # Get total index price records before run and log run date
     from sqlalchemy import func
@@ -200,7 +210,7 @@ def fetch_and_store_indices_prices(days=None):
             today = datetime.now().date()
             df = df[df.index.date < today]
             # Set file_date to yesterday for last_modified
-            file_date = (datetime.now() - timedelta(days=1)).date()
+            # file_date = (datetime.now() - timedelta(days=1)).date() # This line is now redundant as file_date is set above
             
             if df is None or df.empty:
                 logger.warning(f"No data for {idx['name']} ({idx['ticker']})")
@@ -544,5 +554,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Fetch historical index prices.')
     parser.add_argument('--days', type=int, default=None, help='Number of days to fetch (default: 10y)')
+    parser.add_argument('--csv-file', type=str, default=None, help='Path to the CSV file to use for last_modified date (optional)')
     args = parser.parse_args()
-    fetch_and_store_indices_prices(days=args.days) 
+    fetch_and_store_indices_prices(days=args.days, csv_file_path=args.csv_file) 

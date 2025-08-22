@@ -90,7 +90,7 @@ tryCatch({
   # Ensure date is Date type
   prices_dt[, date := as.Date(date)]
   latest_date <- max(prices_dt$date, na.rm = TRUE)
-  flog.info("Latest price date: %s", as.character(latest_date))
+  flog.info("Latest price date availble (ref date may be diferent): %s", as.character(latest_date))
 
   # Define lags/periods (in trading days)
   lags <- c(1, 2, 3, 4, 5, 21, 63, 126, 252, 504, 756, 1260, 2520)  # 1d, 2d, 3d, 4d, 1w, 1m, 3m, 6m, 1y, 2y, 3y, 5y, 10y
@@ -196,6 +196,12 @@ tryCatch({
 
   # Main feature calculation for top_ids
   features_list <- list()
+  # Initialize counters for price source tracking
+  adj_close_used <- 0
+  close_used <- 0
+  current_price_used <- 0
+  no_price_available <- 0
+  
   for (i in seq_along(top_ids)) {
     cid <- top_ids[i]
     if (i %% 100 == 0) {
@@ -208,34 +214,76 @@ tryCatch({
     cname <- joined_dt[id %in% cid, unique(name)][1]
     dt <- joined_dt[id %in% cid][order(date)]
     n_dt <- nrow(dt)
-    price_col <- if ("adj_close" %in% names(dt)) "adj_close" else if ("adj_close.x" %in% names(dt)) "adj_close.x" else NA
     volume_col <- "price_volume"
     f <- list(id = cid)
-    # For current date: use price_volume if available, else companies volume; for other dates, use only price_volume
-    if (n_dt > 0 && !is.na(dt[n_dt, date]) && dt[n_dt, date] == today) {
-      if (!is.na(price_col) && !is.na(dt[n_dt, get(price_col)])) {
-        latest_close <- dt[n_dt, get(price_col)]
-      } else {
-        # Use %in% for robustness
-        cp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, current_price] else NA_real_
-        latest_close <- if (!is.na(cp)) cp else NA_real_
+    
+    # Get reference date price with fallback hierarchy: adj_close → close → current_price
+    latest_close <- NA_real_
+    price_source <- "none"
+    
+    # First try to get price for the reference date
+    ref_date_row <- dt[date == today]
+    if (nrow(ref_date_row) > 0) {
+      # Try adj_close first
+      if ("adj_close" %in% names(ref_date_row) && !is.na(ref_date_row$adj_close[1])) {
+        latest_close <- ref_date_row$adj_close[1]
+        price_source <- "adj_close"
+        adj_close_used <- adj_close_used + 1
+      } else if ("adj_close.x" %in% names(ref_date_row) && !is.na(ref_date_row$adj_close.x[1])) {
+        latest_close <- ref_date_row$adj_close.x[1]
+        price_source <- "adj_close"
+        adj_close_used <- adj_close_used + 1
       }
-      # Volume logic for current date
-      if (!is.na(volume_col) && !is.na(dt[n_dt, get(volume_col)])) {
-        latest_volume <- dt[n_dt, get(volume_col)]
+      # If adj_close not available, try close
+      else if ("close" %in% names(ref_date_row) && !is.na(ref_date_row$close[1])) {
+        latest_close <- ref_date_row$close[1]
+        price_source <- "close"
+        close_used <- close_used + 1
+      } else if ("close.x" %in% names(ref_date_row) && !is.na(ref_date_row$close.x[1])) {
+        latest_close <- ref_date_row$close.x[1]
+        price_source <- "close"
+        close_used <- close_used + 1
+      }
+      # If neither adj_close nor close available, try current_price from companies table
+      else {
+        cp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, current_price] else NA_real_
+        if (!is.na(cp)) {
+          latest_close <- cp
+          price_source <- "current_price"
+          current_price_used <- current_price_used + 1
+        } else {
+          no_price_available <- no_price_available + 1
+        }
+      }
+    } else {
+      # No data for reference date, try current_price from companies table
+      cp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, current_price] else NA_real_
+      if (!is.na(cp)) {
+        latest_close <- cp
+        price_source <- "current_price"
+        current_price_used <- current_price_used + 1
+      } else {
+        no_price_available <- no_price_available + 1
+      }
+    }
+    
+    # Volume logic for reference date
+    latest_volume <- NA_real_
+    if (nrow(ref_date_row) > 0) {
+      if (!is.na(volume_col) && !is.na(ref_date_row[[volume_col]][1])) {
+        latest_volume <- ref_date_row[[volume_col]][1]
       } else {
         v_comp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, volume] else NA_real_
         latest_volume <- if (!is.na(v_comp)) v_comp else NA_real_
       }
-    } else if (!is.na(price_col) && n_dt > 0) {
-      latest_close <- dt[n_dt, get(price_col)]
-      latest_volume <- if (!is.na(volume_col) && n_dt > 0) dt[n_dt, get(volume_col)] else NA_real_
     } else {
-      latest_close <- NA_real_
-      latest_volume <- NA_real_
+      v_comp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, volume] else NA_real_
+      latest_volume <- if (!is.na(v_comp)) v_comp else NA_real_
     }
+    
     f[["latest_close"]] <- latest_close
     f[["latest_volume"]] <- latest_volume
+    f[["price_source"]] <- price_source
     for (lag in lags) {
       # Short column names
       pchg_col <- paste0("pchg_", lag, "d")
@@ -256,114 +304,152 @@ tryCatch({
       cor_col <- paste0("cor_", lag, "d")
       obv_col <- paste0("obv_", lag, "d")
       vwap_col <- paste0("vwap_", lag, "d")
-      if (!is.na(price_col) && n_dt >= lag) {
-        if (lag == 1) {
-          if (n_dt >= 2) {
-            past_close <- dt[n_dt - 1, get(price_col)]
-            f[[pchg_col]] <- 100 * (latest_close - past_close) / past_close
-          } else {
-            f[[pchg_col]] <- NA_real_
-          }
-          if ("high" %in% names(dt) && "low" %in% names(dt)) {
-            phi <- dt[n_dt, high]
-            plo <- dt[n_dt, low]
-          } else {
-            phi <- latest_close
-            plo <- latest_close
-          }
-          f[[phi_col]] <- phi
-          f[[plo_col]] <- plo
-          f[[pdhi_col]] <- 100 * (latest_close - phi) / phi
-          f[[pdlo_col]] <- 100 * (latest_close - plo) / plo
-          f[[pvol_col]] <- NA_real_ # Volatility needs more than one return
-          # Do not calculate or output any volume or advanced metrics for lag == 1
-        } else {
-          start_idx <- n_dt - lag + 1
-          if (start_idx >= 1) {
-            past_close <- dt[n_dt - lag, get(price_col)]
-            f[[pchg_col]] <- 100 * (latest_close - past_close) / past_close
-            period_data <- dt[start_idx:n_dt]
-            period_closes <- period_data[, get(price_col)]
-            returns <- diff(log(period_closes))
-            f[[pvol_col]] <- 100 * sd(returns, na.rm = TRUE)
-            if ("high" %in% names(dt) && "low" %in% names(dt)) {
-              phi <- max(period_data$high, na.rm = TRUE)
-              plo <- min(period_data$low, na.rm = TRUE)
+      
+      # Find the reference date position in the dataset
+      ref_date_idx <- which(dt$date == today)
+      if (length(ref_date_idx) > 0 && !is.na(latest_close)) {
+        ref_idx <- ref_date_idx[1]
+        
+        # Determine which price column to use for historical calculations
+        price_col <- if ("adj_close" %in% names(dt)) "adj_close" else if ("adj_close.x" %in% names(dt)) "adj_close.x" else if ("close" %in% names(dt)) "close" else if ("close.x" %in% names(dt)) "close.x" else NA
+        
+        if (!is.na(price_col) && ref_idx >= lag) {
+          if (lag == 1) {
+            if (ref_idx > 1) {
+              past_close <- dt[ref_idx - 1, get(price_col)]
+              f[[pchg_col]] <- 100 * (latest_close - past_close) / past_close
             } else {
-              phi <- max(period_closes, na.rm = TRUE)
-              plo <- min(period_closes, na.rm = TRUE)
+              f[[pchg_col]] <- NA_real_
+            }
+            if ("high" %in% names(dt) && "low" %in% names(dt)) {
+              phi <- dt[ref_idx, high]
+              plo <- dt[ref_idx, low]
+            } else {
+              phi <- latest_close
+              plo <- latest_close
             }
             f[[phi_col]] <- phi
             f[[plo_col]] <- plo
             f[[pdhi_col]] <- 100 * (latest_close - phi) / phi
             f[[pdlo_col]] <- 100 * (latest_close - plo) / plo
-            # Volume metrics
-            past_volume <- dt[n_dt - lag, get(volume_col)]
-            period_volumes <- dt[start_idx:n_dt, get(volume_col)]
-            vhi <- max(period_volumes, na.rm = TRUE)
-            vlo <- min(period_volumes, na.rm = TRUE)
-            f[[vhi_col]] <- vhi
-            f[[vlo_col]] <- vlo
-            f[[vdhi_col]] <- 100 * (latest_volume - vhi) / vhi
-            f[[vdlo_col]] <- 100 * (latest_volume - vlo) / vlo
-            # Robust length check for past_volume
-            if (length(past_volume) == 1 && !is.na(past_volume) && past_volume > 0) {
-              f[[vchg_col]] <- 100 * (latest_volume - past_volume) / past_volume
-            } else {
-              f[[vchg_col]] <- NA_real_
-            }
-            f[[vavg_col]] <- mean(period_volumes, na.rm = TRUE)
-            f[[vvol_col]] <- 100 * sd(log(period_volumes), na.rm = TRUE)
-            # ATR
-            if ("high" %in% names(dt) && "low" %in% names(dt)) {
-              highs <- period_data$high
-              lows <- period_data$low
-              closes <- period_data[, get(price_col)]
-              prev_closes <- c(NA, closes[-length(closes)])
-              tr <- pmax(highs - lows, abs(highs - prev_closes), abs(lows - prev_closes), na.rm = TRUE)
-              f[[atr_col]] <- mean(tr[-1], na.rm = TRUE) # skip first NA
-            } else {
-              f[[atr_col]] <- NA_real_
-            }
-            # VaR (5th percentile of log returns)
-            if (length(returns) > 0) {
-              f[[var_col]] <- quantile(returns, 0.05, na.rm = TRUE)
-            } else {
-              f[[var_col]] <- NA_real_
-            }
-            # Price-volume correlation
-            if (length(period_closes) == length(period_volumes) && length(period_closes) > 1) {
-              f[[cor_col]] <- suppressWarnings(cor(period_closes, period_volumes, use = "pairwise.complete.obs"))
-            } else {
-              f[[cor_col]] <- NA_real_
-            }
-            # OBV (change over lag)
-            obv <- rep(NA_real_, length(period_closes))
-            if (length(period_closes) > 1) {
-              obv[1] <- 0
-              for (j in 2:length(period_closes)) {
-                if (period_closes[j] > period_closes[j-1]) {
-                  obv[j] <- obv[j-1] + period_volumes[j]
-                } else if (period_closes[j] < period_closes[j-1]) {
-                  obv[j] <- obv[j-1] - period_volumes[j]
-                } else {
-                  obv[j] <- obv[j-1]
-                }
+            f[[pvol_col]] <- NA_real_ # Volatility needs more than one return
+            # Do not calculate or output any volume or advanced metrics for lag == 1
+          } else {
+            start_idx <- ref_idx - lag + 1
+            if (start_idx >= 1) {
+              past_close <- dt[ref_idx - lag, get(price_col)]
+              f[[pchg_col]] <- 100 * (latest_close - past_close) / past_close
+              period_data <- dt[start_idx:ref_idx]
+              period_closes <- period_data[, get(price_col)]
+              returns <- diff(log(period_closes))
+              f[[pvol_col]] <- 100 * sd(returns, na.rm = TRUE)
+              if ("high" %in% names(dt) && "low" %in% names(dt)) {
+                phi <- max(period_data$high, na.rm = TRUE)
+                plo <- min(period_data$low, na.rm = TRUE)
+              } else {
+                phi <- max(period_closes, na.rm = TRUE)
+                plo <- min(period_closes, na.rm = TRUE)
               }
-              f[[obv_col]] <- obv[length(obv)] - obv[1]
-            } else {
-              f[[obv_col]] <- NA_real_
+              f[[phi_col]] <- phi
+              f[[plo_col]] <- plo
+              f[[pdhi_col]] <- 100 * (latest_close - phi) / phi
+              f[[pdlo_col]] <- 100 * (latest_close - plo) / plo
+              # Volume metrics
+              past_volume <- dt[ref_idx - lag, get(volume_col)]
+              period_volumes <- dt[start_idx:ref_idx, get(volume_col)]
+              vhi <- max(period_volumes, na.rm = TRUE)
+              vlo <- min(period_volumes, na.rm = TRUE)
+              f[[vhi_col]] <- vhi
+              f[[vlo_col]] <- vlo
+              f[[vdhi_col]] <- 100 * (latest_volume - vhi) / vhi
+              f[[vdlo_col]] <- 100 * (latest_volume - vlo) / vlo
+              # Robust length check for past_volume
+              if (length(past_volume) == 1 && !is.na(past_volume) && past_volume > 0) {
+                f[[vchg_col]] <- 100 * (latest_volume - past_volume) / past_volume
+              } else {
+                f[[vchg_col]] <- NA_real_
+              }
+              f[[vavg_col]] <- mean(period_volumes, na.rm = TRUE)
+              f[[vvol_col]] <- 100 * sd(log(period_volumes), na.rm = TRUE)
+              # ATR
+              if ("high" %in% names(dt) && "low" %in% names(dt)) {
+                highs <- period_data$high
+                lows <- period_data$low
+                closes <- period_data[, get(price_col)]
+                prev_closes <- c(NA, closes[-length(closes)])
+                tr <- pmax(highs - lows, abs(highs - prev_closes), abs(lows - prev_closes), na.rm = TRUE)
+                f[[atr_col]] <- mean(tr[-1], na.rm = TRUE) # skip first NA
+              } else {
+                f[[atr_col]] <- NA_real_
+              }
+              # VaR (5th percentile of log returns)
+              if (length(returns) > 0) {
+                f[[var_col]] <- quantile(returns, 0.05, na.rm = TRUE)
+              } else {
+                f[[var_col]] <- NA_real_
+              }
+              # Price-volume correlation
+              if (length(period_closes) == length(period_volumes) && length(period_closes) > 1) {
+                f[[cor_col]] <- suppressWarnings(cor(period_closes, period_volumes, use = "pairwise.complete.obs"))
+              } else {
+                f[[cor_col]] <- NA_real_
+              }
+              # OBV (change over lag)
+              obv <- rep(NA_real_, length(period_closes))
+              if (length(period_closes) > 1) {
+                obv[1] <- 0
+                for (j in 2:length(period_closes)) {
+                  # Add NA checks before comparison
+                  if (!is.na(period_closes[j]) && !is.na(period_closes[j-1])) {
+                    if (period_closes[j] > period_closes[j-1]) {
+                      obv[j] <- obv[j-1] + period_volumes[j]
+                    } else if (period_closes[j] < period_closes[j-1]) {
+                      obv[j] <- obv[j-1] - period_volumes[j]
+                    } else {
+                      obv[j] <- obv[j-1]
+                    }
+                  } else {
+                    # If either price is NA, keep previous OBV value
+                    obv[j] <- obv[j-1]
+                  }
+                }
+                f[[obv_col]] <- obv[length(obv)] - obv[1]
+              } else {
+                f[[obv_col]] <- NA_real_
+              }
+              # VWAP
+              if (sum(period_volumes, na.rm = TRUE) > 0) {
+                f[[vwap_col]] <- sum(period_closes * period_volumes, na.rm = TRUE) / sum(period_volumes, na.rm = TRUE)
+              } else {
+                f[[vwap_col]] <- NA_real_
+              }
             }
-            # VWAP
-            if (sum(period_volumes, na.rm = TRUE) > 0) {
-              f[[vwap_col]] <- sum(period_closes * period_volumes, na.rm = TRUE) / sum(period_volumes, na.rm = TRUE)
-            } else {
-              f[[vwap_col]] <- NA_real_
-            }
+          }
+        } else {
+          # Handle cases where there is not enough data for the lag
+          f[[pchg_col]] <- NA_real_
+          f[[pvol_col]] <- NA_real_
+          f[[phi_col]] <- NA_real_
+          f[[plo_col]] <- NA_real_
+          f[[pdhi_col]] <- NA_real_
+          f[[pdlo_col]] <- NA_real_
+          if (lag > 1) {
+            f[[vhi_col]] <- NA_real_
+            f[[vlo_col]] <- NA_real_
+            f[[vdhi_col]] <- NA_real_
+            f[[vdlo_col]] <- NA_real_
+            f[[vchg_col]] <- NA_real_
+            f[[vavg_col]] <- NA_real_
+            f[[vvol_col]] <- NA_real_
+            f[[atr_col]] <- NA_real_
+            f[[var_col]] <- NA_real_
+            f[[cor_col]] <- NA_real_
+            f[[obv_col]] <- NA_real_
+            f[[vwap_col]] <- NA_real_
           }
         }
       } else {
-        # Handle cases where there is not enough data for the lag
+        # Handle cases where reference date not found or no price available
         f[[pchg_col]] <- NA_real_
         f[[pvol_col]] <- NA_real_
         f[[phi_col]] <- NA_real_
@@ -410,6 +496,14 @@ tryCatch({
 
   flog.info("Number of companies with matched price data: %d", diagnostics_count)
 
+  flog.info("\n=== PRICE SOURCE SUMMARY FOR REFERENCE DATE %s ===\n", as.character(today))
+  flog.info("adj_close was used for %d companies\n", adj_close_used)
+  flog.info("close was used for %d companies\n", close_used)
+  flog.info("current_price from companies table was used for %d companies\n", current_price_used)
+  flog.info("no price available for %d companies\n", no_price_available)
+  flog.info("Total companies processed: %d\n", adj_close_used + close_used + current_price_used + no_price_available)
+  
+
   # Export all companies
   if (!dir.exists("output")) dir.create("output")
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
@@ -434,42 +528,14 @@ tryCatch({
   flog.info("Disconnected from database. Script complete.")
 
   # After features_dt is created and has the 'latest_close' and 'latest_volume' columns
-  adj_close_used <- 0
-  current_price_used <- 0
-  price_volume_used <- 0
-  companies_volume_used <- 0
-  for (i in seq_along(top_ids)) {
-    cid <- top_ids[i]
-    if (length(cid) != 1 || is.na(cid) || cid == "" || !(cid %in% joined_dt$id)) {
-      next  # Skip this company if id is missing or empty
-    }
-    dt <- joined_dt[id %in% cid][order(date)]
-    price_col <- if ("adj_close" %in% names(dt)) "adj_close" else if ("adj_close.x" %in% names(dt)) "adj_close.x" else NA
-    volume_col <- "price_volume"
-    today_row <- dt[date == today]
-    if (nrow(today_row) > 0) {
-      # Price
-      if (!is.na(today_row[[price_col]])) {
-        adj_close_used <- adj_close_used + 1
-      } else {
-        cp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, current_price] else NA_real_
-        if (!is.na(cp)) {
-          current_price_used <- current_price_used + 1
-        }
-      }
-      # Volume
-      if (!is.na(today_row[[volume_col]])) {
-        price_volume_used <- price_volume_used + 1
-      } else {
-        v_comp <- if (!is.na(cid) && cid %in% companies_dt$id) companies_dt[id %in% cid, volume] else NA_real_
-        if (!is.na(v_comp)) {
-          companies_volume_used <- companies_volume_used + 1
-        }
-      }
-    }
-  }
   # Only print the final summary
-  cat(sprintf("For %s:\nadj_close was used for %d companies\ncurrent_price from companies table was used for %d companies\nprice_volume was used for %d companies\ncompanies volume was used for %d companies\n", as.character(today), adj_close_used, current_price_used, price_volume_used, companies_volume_used))
+  cat(sprintf("\n=== PRICE SOURCE SUMMARY FOR REFERENCE DATE %s ===\n", as.character(today)))
+  cat(sprintf("adj_close was used for %d companies\n", adj_close_used))
+  cat(sprintf("close was used for %d companies\n", close_used))
+  cat(sprintf("current_price from companies table was used for %d companies\n", current_price_used))
+  cat(sprintf("no price available for %d companies\n", no_price_available))
+  cat(sprintf("Total companies processed: %d\n", adj_close_used + close_used + current_price_used + no_price_available))
+  cat("================================================\n\n")
 
 }, error = function(e) {
   flog.error("Error: %s", e$message)

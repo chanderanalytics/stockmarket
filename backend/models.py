@@ -235,6 +235,24 @@ class MajorHolder(Base):
 Index('idx_major_holders_company_code_date', MajorHolder.company_code, MajorHolder.date)
 Index('idx_major_holders_company_code_holder', MajorHolder.company_code, MajorHolder.holder_name)
 
+class InsiderTrade(Base):
+    """Represents an insider trading transaction."""
+    __tablename__ = 'insidertrades'
+    
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False)
+    company = Column(String, nullable=False)
+    regulation = Column(String, nullable=False)
+    acquirer_disposer = Column(String, nullable=False)
+    category = Column(String, nullable=False)
+    date = Column(Date)
+    last_modified = Column(Date, nullable=True)
+
+# Add indexes for insider trades
+Index('idx_insidertrades_symbol', InsiderTrade.symbol)
+Index('idx_insidertrades_company', InsiderTrade.company)
+Index('idx_insidertrades_date', InsiderTrade.date)
+
 class InstitutionalHolder(Base):
     """
     Institutional holders data.

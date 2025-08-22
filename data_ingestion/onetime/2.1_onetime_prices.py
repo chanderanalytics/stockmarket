@@ -59,11 +59,22 @@ def get_yfinance_ticker(company):
         return f"{bse_code_str}.BO", 'BSE'
     return None, None
 
-def fetch_and_store_prices(days=None, batch_size=25):
+def fetch_and_store_prices(days=None, batch_size=25, csv_file_path=None):
     """
     Fetches historical daily prices for all companies using unified codes.
     """
     session = Session()
+    
+    # Use CSV file date if provided, otherwise use today's date
+    if csv_file_path and os.path.exists(csv_file_path):
+        match = re.search(r'(\d{8})', csv_file_path)
+        if match:
+            file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+        else:
+            raise ValueError("No date found in CSV filename!")
+    else:
+        # Fallback to today's date if no CSV provided
+        file_date = datetime.now().date()
     
     # Data quality tracking
     quality_metrics = {
@@ -170,11 +181,11 @@ def fetch_and_store_prices(days=None, batch_size=25):
             company_invalid_prices = 0
             
             # Assume csv_file is passed or set at the top
-            match = re.search(r'(\d{8})', csv_file)
-            if match:
-                file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
-            else:
-                raise ValueError("No date found in CSV filename!")
+            # match = re.search(r'(\d{8})', csv_file_path)
+            # if match:
+            #     file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+            # else:
+            #     raise ValueError("No date found in CSV filename!")
             
             for date, row in company_df.iterrows():
                 key = (company_code, date.date())
@@ -415,10 +426,11 @@ def get_today_csv_file():
     else:
         raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data folder.")
 
-csv_file = get_today_csv_file()
+# csv_file = get_today_csv_file() # This line is removed as per the edit hint.
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fetch historical prices for all companies.')
     parser.add_argument('--days', type=int, default=None, help='Number of days to fetch (default: 10y)')
+    parser.add_argument('--csv_file', type=str, default=None, help='Path to the CSV file containing the date for price import.')
     args = parser.parse_args()
-    fetch_and_store_prices(days=args.days) 
+    fetch_and_store_prices(days=args.days, csv_file_path=args.csv_file) 
