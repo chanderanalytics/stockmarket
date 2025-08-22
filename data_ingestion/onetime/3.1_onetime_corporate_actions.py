@@ -57,13 +57,22 @@ def get_yfinance_ticker(company):
         return f"{bse_code_str}.BO", 'BSE'
     return None, None
 
-def fetch_and_store_corporate_actions(limit=None, batch_size=100, days=None):
+def fetch_and_store_corporate_actions(limit=None, batch_size=100, days=None, csv_file_path=None):
     """
     Fetch historical corporate actions (splits and dividends) for all companies.
     Uses smart comparison to only insert new actions.
     """
     session = Session()
-    yesterday = (datetime.now() - timedelta(days=1)).date()
+    
+    # Use CSV file date if provided, otherwise use yesterday
+    if csv_file_path and os.path.exists(csv_file_path):
+        match = re.search(r'(\d{8})', csv_file_path)
+        if match:
+            file_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+        else:
+            file_date = (datetime.now() - timedelta(days=1)).date()
+    else:
+        file_date = (datetime.now() - timedelta(days=1)).date()
     
     # Initialize quality metrics
     quality_metrics = {
@@ -156,7 +165,7 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=100, days=None):
                         key = (company_code, date, 'split')
                         all_keys.add(key)
                         company_splits += 1
-                        action = CorporateAction(company_id=company.id, company_code=company_code, company_name=company.name, date=date, type='split', details=f"{ratio}:1 split", last_modified=yesterday)
+                        action = CorporateAction(company_id=company.id, company_code=company_code, company_name=company.name, date=date, type='split', details=f"{ratio}:1 split", last_modified=file_date)
                         action_objects.append(action)
             
             # Store dividends
@@ -172,7 +181,7 @@ def fetch_and_store_corporate_actions(limit=None, batch_size=100, days=None):
                         key = (company_code, date, 'dividend')
                         all_keys.add(key)
                         company_dividends += 1
-                        action = CorporateAction(company_id=company.id, company_code=company_code, company_name=company.name, date=date, type='dividend', details=f"{amount} dividend", last_modified=yesterday)
+                        action = CorporateAction(company_id=company.id, company_code=company_code, company_name=company.name, date=date, type='dividend', details=f"{amount} dividend", last_modified=file_date)
                         action_objects.append(action)
             
             quality_metrics['total_splits'] += company_splits
@@ -383,11 +392,12 @@ def get_today_csv_file():
     else:
         raise FileNotFoundError(f"No screener_export_{today_str}.csv file found in data folder.")
 
-csv_file = get_today_csv_file()
+# csv_file = get_today_csv_file()  # Commented out - not needed for corporate actions
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fetch historical corporate actions for companies.')
     parser.add_argument('--limit', type=int, default=None, help='Limit number of companies to process')
     parser.add_argument('--days', type=int, default=None, help='Number of days to fetch (default: 10y)')
+    parser.add_argument('--csv-file', type=str, default=None, help='CSV file path to use for last_modified date')
     args = parser.parse_args()
-    fetch_and_store_corporate_actions(limit=args.limit, days=args.days) 
+    fetch_and_store_corporate_actions(limit=args.limit, days=args.days, csv_file_path=args.csv_file) 

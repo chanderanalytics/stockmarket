@@ -29,8 +29,13 @@ file.create(log_file)
 #' @examples
 #' log_message("Starting analysis", "INFO")
 log_message <- function(msg, level = "INFO") {
+  # Handle vector inputs by collapsing to a single string
+  if (length(msg) > 1) {
+    msg <- paste(msg, collapse = " ")
+  }
+  
   # Skip verbose company-level logs
-  if (grepl("company", tolower(msg)) && level == "INFO") {
+  if (level == "INFO" && any(grepl("company", tolower(msg)))) {
     return()
   }
   
@@ -45,8 +50,10 @@ log_message <- function(msg, level = "INFO") {
     cat(log_line)
   }
   
-  # Append to log file
-  cat(log_line, file = log_file, append = TRUE)
+  # Append to log file if it exists
+  if (exists("log_file")) {
+    cat(log_line, file = log_file, append = TRUE)
+  }
   
   # Flush to ensure it's written
   flush.console()
@@ -113,7 +120,7 @@ evaluate_partial_signals <- function(dt) {
  dt[, close_to_next_stage := {
   result <- rep(FALSE, .N)
   for (s in 0:4) { # Stage 5 doesn't have a next stage
-   result[stage_ff == s & get(paste0('close_to_stage_', s + 1))] <- TRUE
+   result[stage_ff %in% s & get(paste0('close_to_stage_', s + 1)) == 1] <- TRUE
   }
   result
  }]
@@ -360,11 +367,7 @@ calculate_indicators <- function(dt) {
  # Calculate 1-day returns if not already present
  if (!"return_1d" %in% names(dt)) {
   dt[, return_1d := {
-   if (.N > 1) {
-    c(diff(close) / close[-.N], NA_real_)
-   } else {
-    NA_real_
-   }
+   (close - shift(close, type = "lag")) / shift(close, type = "lag")
   }, by = company_id]
  }
  
@@ -827,24 +830,41 @@ calculate_indicators <- function(dt) {
  # Risk metrics - optimized calculation
  log_message("Calculating risk metrics...")
  
- # Calculate all risk metrics in a single pass
- log_message(" - Calculating rolling statistics...")
+ # Calculate all risk metrics in a single pass with improved error handling
+ log_message(" - Calculating rolling statistics with enhanced stability...")
  
- # Initialize columns with NA
+ # Initialize columns with NA and set appropriate types
  dt[, `:=`(
-  var_1d = NA_real_,
-  max_drawdown_252d = NA_real_,
-  sharpe_ratio = NA_real_
+   var_1d = NA_real_,
+   max_drawdown_252d = NA_real_,
+   sharpe_ratio = NA_real_,
+   var_calc_status = NA_character_  # Track calculation status
  )]
  
- # Calculate for companies with enough data points
- valid_companies <- dt[, .N >= 21, by = company_id][V1 == TRUE, company_id]
+ # Check for required columns
+ required_cols <- c("company_id", "return_1d", "close")
+ missing_cols <- setdiff(required_cols, names(dt))
+ 
+ if (length(missing_cols) > 0) {
+  log_message(sprintf("Warning: Missing required columns for risk metrics: %s", 
+                     paste(missing_cols, collapse = ", ")), "WARN")
+  # Initialize missing columns with NA if they don't exist
+  for (col in missing_cols) {
+   dt[, (col) := NA_real_]
+  }
+ }
+ 
+ # Calculate for companies with enough data points (minimum 21 days)
+ valid_companies <- dt[, {
+   valid_days <- sum(!is.na(return_1d) & is.finite(return_1d))
+   list(valid = valid_days >= 21, count = .N, valid_days = valid_days)
+ }, by = company_id][valid == TRUE, company_id]
  
  if (length(valid_companies) > 0) {
   log_message(sprintf(" - Processing risk metrics for %d companies with sufficient data", length(valid_companies)))
   
   # Process in chunks to avoid memory issues
-  chunk_size <- 500
+  chunk_size <- 200  # Reduced chunk size for better memory management
   num_chunks <- ceiling(length(valid_companies) / chunk_size)
   
   for (i in 1:num_chunks) {
@@ -853,83 +873,86 @@ calculate_indicators <- function(dt) {
    current_companies <- valid_companies[start_idx:end_idx]
    
    dt[company_id %in% current_companies, {
-    # Initialize result vectors
-    var_1d_val <- rep(NA_real_, .N)
-    sharpe_val <- rep(NA_real_, .N)
-    max_dd <- rep(NA_real_, .N)
-    
-    # Only proceed if we have enough data
-    if (sum(!is.na(return_1d)) >= 5) { # Require at least 5 non-NA returns
-     # 21-day rolling window for VaR and Sharpe
-     roll_mean <- frollmean(return_1d, 21, align = "right", na.rm = TRUE)
-     roll_sd <- sqrt(frollmean(return_1d^2, 21, align = "right", na.rm = TRUE) - roll_mean^2)
+     # Initialize result vectors
+     var_1d_val <- rep(NA_real_, .N)
+     sharpe_val <- rep(NA_real_, .N)
+     max_dd <- rep(NA_real_, .N)
+     status <- "insufficient_data"
      
-     # Value at Risk (5% quantile)
-     var_1d_val <- roll_mean + qnorm(0.05) * roll_sd
-     
-     # Sharpe Ratio (annualized)
-     sharpe_val <- roll_mean / (roll_sd + 1e-9) * sqrt(252)
-     
-     # Calculate max drawdown with minimum 21 trading days
-     min_days_for_drawdown <- 21
-     if (.N >= min_days_for_drawdown) {
-      window_size <- min(.N, 252)
-      valid_close <- !is.na(close) & close > 0
-      
-      if (sum(valid_close) >= min_days_for_drawdown) {
-       # Get valid close prices and their indices
-       valid_prices <- close[valid_close]
-       valid_indices <- which(valid_close)
-       
-       # Calculate max drawdown for each window
-       max_dd_values <- sapply(1:(length(valid_prices) - window_size + 1), function(i) {
-        window_prices <- valid_prices[i:(i + window_size - 1)]
-        if (any(is.na(window_prices)) || length(window_prices) < 2) return(NA_real_)
-        
-        # Calculate returns
-        returns <- diff(window_prices) / window_prices[-length(window_prices)]
-        if (any(is.na(returns)) || length(returns) == 0) return(NA_real_)
-        
-        # Calculate cumulative returns
-        cum_returns <- cumprod(1 + returns)
-        
-        # Calculate max drawdown
-        max_dd <- min(cum_returns / cummax(cum_returns) - 1, na.rm = TRUE)
-        
-        # Ensure finite value
-        if (is.finite(max_dd)) max_dd else NA_real_
-       })
-       
-       # Map back to original indices with NAs for the initial window
-       max_dd <- rep(NA_real_, .N)
-       if (length(max_dd_values) > 0) {
-        start_idx <- valid_indices[1] + window_size - 1
-        end_idx <- valid_indices[length(valid_indices)]
-        max_dd[start_idx:end_idx] <- max_dd_values[1:min(length(max_dd_values), length(start_idx:end_idx))]
+     tryCatch({
+       # Only proceed if we have enough valid returns
+       valid_returns <- !is.na(return_1d) & is.finite(return_1d)
+       if (sum(valid_returns) >= 21) {
+         # 21-day rolling window for VaR and Sharpe with improved stability
+         roll_mean <- frollmean(return_1d, 21, align = "right", na.rm = TRUE)
+         roll_mean_sq <- frollmean(return_1d^2, 21, align = "right", na.rm = TRUE)
+         
+         # Calculate variance with numerical stability
+         variance <- pmax(0, roll_mean_sq - roll_mean^2)
+         roll_sd <- sqrt(variance)
+         
+         # Value at Risk (5% quantile) with bounds checking
+         var_1d_val <- roll_mean + qnorm(0.05) * roll_sd
+         
+         # Sharpe Ratio (annualized) with protection against division by zero
+         sharpe_val <- ifelse(roll_sd > 1e-9, 
+                              roll_mean / roll_sd * sqrt(252), 
+                              sign(roll_mean) * Inf)
+         
+         # Cap extreme values
+         sharpe_val <- pmin(pmax(sharpe_val, -10), 10)
+         
+         # Calculate max drawdown with minimum 21 trading days
+         if (.N >= 21) {
+           # Calculate running maximum over 252-day window (or available data)
+           roll_max <- frollapply(close, min(.N, 252), max, align = "right", na.rm = TRUE)
+           
+           # Calculate drawdown from peak with protection against zero/negative prices
+           valid_prices <- !is.na(close) & close > 0 & !is.na(roll_max) & roll_max > 0
+           drawdown <- rep(NA_real_, .N)
+           drawdown[valid_prices] <- (close[valid_prices] - roll_max[valid_prices]) / roll_max[valid_prices]
+           
+           # Get minimum drawdown in the window (max drawdown)
+           max_dd <- frollapply(drawdown, min(.N, 252), min, align = "right", na.rm = FALSE)
+           
+           # Ensure we have at least 21 non-NA values
+           if (sum(!is.na(max_dd)) < 21) {
+             max_dd <- rep(NA_real_, .N)
+           }
+         }
+         
+         # Ensure values are within expected ranges
+         max_dd <- pmin(pmax(max_dd, -1), 0, na.rm = FALSE)
+         status <- "success"
        }
-       
-       # Fill NAs with most recent value if available
-       if (any(!is.na(max_dd))) {
-        max_dd <- nafill(max_dd, type = "locf")
-       }
-      }
-     }
-    }
-    
-    # Ensure values are within expected ranges
-    max_dd <- pmin(pmax(max_dd, -1), 0, na.rm = FALSE)
-    
-    # Return results
-    .(
-     var_1d = var_1d_val,
-     max_drawdown_252d = max_dd,
-     sharpe_ratio = sharpe_val
-    )
+     }, error = function(e) {
+       log_message(sprintf("Error calculating risk metrics for company %s: %s", 
+                          .BY$company_id, e$message), "ERROR")
+       status <<- paste0("error: ", conditionMessage(e))
+     })
+     
+     # Return results
+     .(
+       var_1d = var_1d_val,
+       max_drawdown_252d = max_dd,
+       sharpe_ratio = sharpe_val,
+       var_calc_status = status
+     )
    }, by = company_id]
    
    # Log progress
-   if (i %% 10 == 0 || i == num_chunks) {
-    log_message(sprintf("  Processed chunk %d/%d", i, num_chunks))
+   if (i %% 5 == 0 || i == num_chunks) {
+     # Calculate success rate for this chunk
+     chunk_stats <- dt[company_id %in% current_companies, 
+                      .(success = sum(var_calc_status == "success", na.rm = TRUE),
+                        total = .N), 
+                      by = company_id]
+     
+     log_message(sprintf("  Processed chunk %d/%d - Success: %d/%d (%.1f%%)", 
+                        i, num_chunks,
+                        sum(chunk_stats$success), 
+                        sum(chunk_stats$total),
+                        sum(chunk_stats$success) / sum(chunk_stats$total) * 100))
    }
   }
  } else {
@@ -1011,80 +1034,95 @@ calculate_indicators <- function(dt) {
  }
  
  dt[, risk_score := {
-  # Debug: Count non-NA values for each component
-  non_na_counts <- c(
-   vol_21d = sum(!is.na(vol_21d)),
-   max_drawdown = sum(!is.na(max_drawdown_252d)),
-   var_1d = sum(!is.na(var_1d)),
-   sharpe = sum(!is.na(sharpe_ratio)),
-   volume = sum(!is.na(volume)),
-   close = sum(!is.na(close))
-  )
-  
-  if (any(non_na_counts == 0)) {
-   log_message(sprintf(" Company %s: Missing data - %s", 
-            first(company_id),
-            paste(names(non_na_counts)[non_na_counts == 0], collapse = ", ")), 
-        "DEBUG")
-  }
-  
-  # 1. Market Risk Components (0-100 scale, higher = riskier)
-  vol_risk <- safe_ecdf(vol_21d)
-  
-  # Handle max drawdown risk calculation
-  dd_risk <- if (all(is.na(max_drawdown_252d))) {
-   rep(NA_real_, .N)
-  } else {
-   safe_ecdf(abs(max_drawdown_252d))
-  }
-  
-  var_risk <- safe_ecdf(abs(var_1d))
-  
-  # 2. Risk-Adjusted Return Component (inverted, higher = better)
-  sharpe_risk <- if (all(is.na(sharpe_ratio))) {
-   rep(NA_real_, .N)
-  } else {
-   100 - safe_ecdf(-sharpe_ratio)
-  }
-  
-  # 3. Volume and Price Stability (0-100 scale, higher = more stable)
-  vol_sd <- frollapply(volume, 21, sd, na.rm = TRUE, align = "right")
-  vol_mean <- frollmean(volume, 21, na.rm = TRUE, align = "right")
-  vol_cv <- ifelse(vol_mean > 0, vol_sd / vol_mean * 100, 0)
-  volume_stability <- 100 - safe_ecdf(vol_cv)
-  
-  # Calculate price stability with error handling
-  price_sd <- frollapply(close, 21, sd, na.rm = TRUE, align = "right")
-  price_mean <- frollmean(close, 21, na.rm = TRUE, align = "right")
-  price_cv <- ifelse(price_mean > 0, price_sd / price_mean * 100, 0)
-  price_stability <- 100 - safe_ecdf(price_cv)
-  
-  # 4. Combine components with weights, handling NAs
-  components <- list(
-   vol_risk = vol_risk * 0.20,
-   dd_risk = dd_risk * 0.20,
-   var_risk = var_risk * 0.20,
-   sharpe_risk = (100 - sharpe_risk) * 0.15,
-   volume_stability = (100 - volume_stability) * 0.15,
-   price_stability = (100 - price_stability) * 0.10
-  )
-  
-  # Count non-NA components for each row
-  valid_components <- rowSums(!is.na(as.data.table(components)))
-  
-  # Calculate weighted sum, normalizing by available components
-  risk_score <- rowSums(as.data.table(components), na.rm = TRUE) * 
-         (6 / pmax(valid_components, 1)) # Scale up if components are missing
-  
-  # Ensure score is within 0-100 range
-  risk_score <- pmin(pmax(risk_score, 0), 100)
-  
-  # Invert so higher = lower risk
-  risk_score <- 100 - risk_score
-  
-  # Round to 1 decimal place
-  round(risk_score, 1)
- }, by = .(company_id)]
+   # Debug: Count non-NA values for each component
+   non_na_counts <- c(
+    vol_21d = sum(!is.na(vol_21d)),
+    max_drawdown = sum(!is.na(max_drawdown_252d)),
+    var_1d = sum(!is.na(var_1d)),
+    sharpe = sum(!is.na(sharpe_ratio)),
+    volume = sum(!is.na(volume)),
+    close = sum(!is.na(close))
+   )
+   
+   if (any(non_na_counts == 0)) {
+    log_message(sprintf(" Company %s: Missing data - %s", 
+             first(company_id),
+             paste(names(non_na_counts)[non_na_counts == 0], collapse = ", ")), 
+         "DEBUG")
+   }
+   
+   # 1. Calculate component scores (0-100 scale, higher = riskier)
+   vol_risk <- safe_ecdf(vol_21d)  # Higher vol = higher risk
+   
+   # Handle max drawdown risk
+   dd_risk <- if (all(is.na(max_drawdown_252d))) {
+    rep(NA_real_, .N)
+   } else {
+    safe_ecdf(abs(max_drawdown_252d))  # Higher drawdown = higher risk
+   }
+   
+   # Value at Risk
+   var_risk <- safe_ecdf(abs(var_1d))  # Higher VaR = higher risk
+   
+   # Risk-Adjusted Return (Sharpe Ratio)
+   sharpe_risk <- if (all(is.na(sharpe_ratio))) {
+    rep(NA_real_, .N)
+   } else {
+    100 - safe_ecdf(sharpe_ratio)  # Higher Sharpe = lower risk
+   }
+   
+   # Volume Stability (CV of 21-day volume)
+   vol_sd <- frollapply(volume, 21, sd, na.rm = TRUE, align = "right")
+   vol_mean <- frollmean(volume, 21, na.rm = TRUE, align = "right")
+   vol_cv <- ifelse(vol_mean > 0, vol_sd / vol_mean * 100, 0)
+   volume_stability <- safe_ecdf(vol_cv)  # Higher CV = higher risk
+   
+   # Price Stability (CV of 21-day close prices)
+   price_sd <- frollapply(close, 21, sd, na.rm = TRUE, align = "right")
+   price_mean <- frollmean(close, 21, na.rm = TRUE, align = "right")
+   price_cv <- ifelse(price_mean > 0, price_sd / price_mean * 100, 0)
+   price_stability <- safe_ecdf(price_cv)  # Higher CV = higher risk
+   
+   # 2. Define component weights
+   weights <- c(
+    vol_risk = 0.20,          # 20%
+    dd_risk = 0.20,           # 20%
+    var_risk = 0.20,          # 20%
+    sharpe_risk = 0.15,       # 15%
+    volume_stability = 0.15,  # 15%
+    price_stability = 0.10    # 10%
+   )
+   
+   # 3. Create component matrix
+   component_values <- data.table(
+    vol_risk,
+    dd_risk,
+    var_risk,
+    sharpe_risk,
+    volume_stability,
+    price_stability
+   )
+   
+   # 4. Calculate weighted score with proper NA handling
+   # Initialize with NA
+   risk_score <- rep(NA_real_, .N)
+   
+   # For each row, calculate weighted average of available components
+   for (i in 1:.N) {
+    row_components <- as.numeric(component_values[i])
+    row_weights <- weights[!is.na(row_components)]
+    row_values <- row_components[!is.na(row_components)]
+    
+    if (length(row_values) > 0) {
+     # Calculate weighted average, normalizing by sum of available weights
+     risk_score[i] <- sum(row_values * row_weights) / sum(row_weights) * 100
+    }
+   }
+   
+   # 5. Ensure score is within 0-100 range and round
+   risk_score <- pmin(pmax(risk_score, 0), 100)
+   round(risk_score, 1)
+  }, by = .(company_id)]
  
  # w) Risk Categories
  dt[, risk_category := cut(risk_score,
@@ -1133,9 +1171,9 @@ evaluate_rules <- function(dt) {
  
  # 5.2.2 Stage 1: Initial Breakout Conditions
  dt[, `:=`(
-  PRICE_BREAKOUT = as.integer(close > high_21d),
-  VOL_CONFIRM = as.integer(volume > 1.5 * vol_21d_avg),
-  MOMENTUM = as.integer(return_5d > 0.03)
+  PRICE_BREAKOUT = as.integer(close > 0.99 * high_21d),  # Within 1% of 21-day high
+  VOL_CONFIRM = as.integer(volume > 1.2 * vol_21d_avg),   # Reduced from 1.5x to 1.2x
+  MOMENTUM = as.integer(return_5d > 0.02)                 # Reduced from 3% to 2%
  )]
  
  # 5.2.3 Stage 2: Trend Confirmation
@@ -1155,9 +1193,9 @@ evaluate_rules <- function(dt) {
  
  # 5.2.5 Stage 4: Overextension & Divergence
  dt[, `:=`(
-  OVEREXTENDED = as.integer(overextension > 0.20),
-  DIVERGENCE = as.integer(return_5d < 0 & return_63d > 0),
-  CLIMAX_VOL = as.integer(volume > 3 * vol_63d_avg)
+  OVEREXTENDED = as.integer(overextension > 0.075),                 # Reduced from 10% to 7.5%
+  DIVERGENCE = as.integer(return_5d < 0.03 & return_63d > -0.08),   # Even more lenient divergence
+  CLIMAX_VOL = as.integer(volume > 1.5 * vol_63d_avg)               # Reduced from 1.8x to 1.5x
  )]
  
  # 5.2.6 Stage 5: Distribution
@@ -1247,13 +1285,16 @@ calculate_stage_scores <- function(dt) {
  if (all(c('close', 'high_21d', 'volume', 'vol_21d_avg') %in% names(dt))) {
   dt[, stage_1_score := {
    # Price breakout strength (how far above high_21d)
-   breakout_strength <- pmin(1, pmax(0, (close - high_21d) / (close * 0.05)))
+   # Changed: Allow prices within 1% of high_21d to count for breakout
+   breakout_strength <- pmin(1, pmax(0, (close - (high_21d * 0.99)) / (close * 0.05)))
    
    # Volume confirmation (higher volume is better)
-   vol_confirmation <- pmin(1, volume / pmax(vol_21d_avg * 1.5, 1e-6))
+   # Changed: Reduced volume requirement from 1.5x to 1.2x
+   vol_confirmation <- pmin(1, volume / pmax(vol_21d_avg * 1.2, 1e-6))
    
    # Momentum (recent price movement)
-   momentum_score <- pmin(1, pmax(0, (close / shift(close, 5) - 1) / 0.05))
+   # Changed: Reduced threshold from 5% to 3% for 5-day return
+   momentum_score <- pmin(1, pmax(0, (close / shift(close, 5) - 1) / 0.03))
    
    # Weighted average
    (breakout_strength * 0.5 + vol_confirmation * 0.3 + momentum_score * 0.2) * 100
@@ -1310,13 +1351,15 @@ calculate_stage_scores <- function(dt) {
  if (all(c('close', 'ma_21', 'rsi', 'volume', 'vol_63d_avg') %in% names(dt))) {
   dt[, stage_4_score := {
    # Overextension (distance from MA21)
-   overextended_score <- pmin(1, pmax(0, (close / ma_21 - 1.20) / 0.20))
+   # Changed: Reduced overextension requirement from 20% to 15% above MA21
+   overextended_score <- pmin(1, pmax(0, (close / ma_21 - 1.15) / 0.20))
    
    # Divergence (price vs momentum)
    divergence_score <- as.numeric(close > shift(close, 5) & rsi < shift(rsi, 5)) * 0.5 + 0.5
    
    # Climax volume (high volume)
-   climax_vol_score <- pmin(1, volume / pmax(vol_63d_avg * 2, 1e-6))
+   # Changed: Reduced volume requirement from 2x to 1.5x
+   climax_vol_score <- pmin(1, volume / pmax(vol_63d_avg * 1.5, 1e-6))
    
    # Weighted average
    (overextended_score * 0.4 + divergence_score * 0.3 + climax_vol_score * 0.3) * 100
@@ -1400,24 +1443,29 @@ evaluate_partial_signals <- function(dt) {
   # Check if rows are close to this stage (not current stage and meets all or all but one rule)
   rules_met <- rowSums(dt[, ..existing_rules] == 1, na.rm = TRUE)
   total_rules <- length(existing_rules)
-  is_close <- ((!is.na(dt$stage) & dt$stage != s) | is.na(dt$stage)) &
+  
+  # Use %in% for vector comparison to avoid length mismatch
+  is_close <- ((!is.na(dt$stage) & !(dt$stage %in% s)) | is.na(dt$stage)) &
        (rules_met >= pmax(1, total_rules - 1))
   
   # Update the close_to_stage column
   dt[is_close, (paste0('close_to_stage_', s)) := 1L]
  }
  
- # Create best_partial_stage as a concatenated string of close stages
- dt[, best_partial_stage := {
-  # Get all close_to_stage_X columns that are 1
-  stage_cols <- paste0('close_to_stage_', 0:5)
-  close_stages <- which(sapply(stage_cols, function(x) get(x) == 1))
-  if (length(close_stages) > 0) {
-   paste(sort(close_stages - 1), collapse = ",")
-  } else {
-   NA_character_
-  }
- }]
+ # Set best_partial_stage to 0 for all records (temporary solution)
+ dt[, best_partial_stage := 0L]
+ 
+ # Original best_partial_stage calculation (commented out)
+ # dt[, best_partial_stage := {
+ #  # Get all close_to_stage_X columns that are 1
+ #  stage_cols <- paste0('close_to_stage_', 0:5)
+ #  close_stages <- which(sapply(stage_cols, function(x) get(x) == 1))
+ #  if (length(close_stages) > 0) {
+ #   paste(sort(close_stages - 1), collapse = ",")
+ #  } else {
+ #   NA_character_
+ #  }
+ # }]
  
  log_message(sprintf("Completed partial signal evaluation in %.2f seconds", 
           as.numeric(difftime(Sys.time(), start_time, units = "secs"))), 
@@ -1519,12 +1567,12 @@ assign_stage <- function(dt) {
   log_message(capture.output(print(rule_summary[count > 0], nrows = 20)), "DEBUG")
   
   # Update best_partial_stage where we have a better match
-  better_idx <- which(is.na(dt$best_partial_stage) | 
-            as.integer(s) > dt$best_partial_stage)
-  
-  if (length(better_idx) > 0) {
-   dt[better_idx, best_partial_stage := as.integer(s)]
-  }
+  # Commented out as we're setting best_partial_stage to 0 for all records
+  # better_idx <- which(is.na(dt$best_partial_stage) | 
+  #          as.integer(s) > dt$best_partial_stage)
+  # if (length(better_idx) > 0) {
+  #  dt[better_idx, best_partial_stage := as.integer(s)]
+  # }
   
   # Full matches -> assign stage
   full_idx <- which(met_count == total & total > 0)
@@ -1586,48 +1634,44 @@ add_stage_history <- function(dt) {
   
   # Track last 3 stage changes
   dt[, stage_history := {
-    # Get run-length encoding of stages
-    runs <- rle(stage_ff)
+    # Get only the stage changes (where stage is different from previous)
+    changes <- which(c(TRUE, diff(stage_ff) != 0))
     
-    # For each position, get the last 3 stage changes
-    lapply(seq_along(stage_ff), function(i) {
-      # Find which run this position is in
-      run_ends <- cumsum(runs$lengths)
-      current_run <- which(run_ends >= i)[1]
-      
-      # Get up to 3 most recent stage changes
-      start_run <- max(1, current_run - 2)
-      recent_runs <- runs$values[start_run:current_run]
-      recent_lengths <- runs$lengths[start_run:current_run]
-      
-      # Create stage names mapping
-      stage_names <- c(
-       "0" = "SETUP",
+    # Get the last 3 changes (or fewer if not enough changes)
+    last_changes <- tail(changes, 3)
+    
+    # Get the stages and their start dates
+    stages <- stage_ff[last_changes]
+    
+    # Calculate days in each stage
+    ends <- c(last_changes[-1] - 1, length(stage_ff))
+    days_in_stage <- ends - last_changes + 1
+    
+    # Create stage names mapping
+    stage_names <- c(
+      "0" = "SETUP",
       "1" = "BREAKOUT",
       "2" = "EARLY_MOM",
       "3" = "SUSTAINED",
       "4" = "EXTENDED",
       "5" = "DISTRIBUTION"
-      )
-      
-      # Format as "Stage Name (X days) → ..."
-      stages <- mapply(
-        function(stage, len) {
-          stage_name <- stage_names[as.character(stage)]
-          if (is.na(stage_name)) stage_name <- paste("Stage", stage)
-          sprintf("%s (%d day%s)", stage_name, len, ifelse(len > 1, "s", ""))
-        },
-        recent_runs,
-        recent_lengths
-      )
-      
-      # Combine with arrows
-      paste(rev(stages), collapse = " → ")
-    })
+    )
+    
+    # Format each stage change
+    stage_strings <- mapply(
+      function(s, d) {
+        stage_name <- stage_names[as.character(s)]
+        if (is.na(stage_name)) stage_name <- paste("Stage", s)
+        sprintf("%s (%d day%s)", stage_name, d, ifelse(d > 1, "s", ""))
+      },
+      stages,
+      days_in_stage
+    )
+    
+    # Combine with arrows and repeat for all rows
+    history <- paste(rev(stage_strings), collapse = " → ")
+    rep(history, .N)
   }, by = company_id]
-  
-  # Convert list to character vector
-  dt[, stage_history := unlist(stage_history)]
   
   return(dt)
 }
@@ -1786,48 +1830,48 @@ calculate_dynamic_levels <- function(dt) {
   })
  }, by = .(company_id, rleid(stage))]
  
- # Calculate take profit and related metrics with error handling
- dt[, `:=`(
-  take_profit = {
-   tryCatch({
-    close + (close - stop_loss) * 2
-   }, error = function(e) {
-    log_message(paste0("Error calculating take_profit: ", e$message))
-    close * 1.1 # Default to 10% above close on error
-   })
+ dt[, stop_pct := tryCatch({
+    # Ensure stop is below current price for long positions
+    stop_loss <- pmin(stop_loss, close * 0.99)  # Force stop to be at least 1% below current price
+    # Calculate percentage distance
+    ((close - stop_loss) / close) * 100
+  }, 
+  error = function(e) {
+    log_message(paste0("Error calculating stop_pct: ", e$message))
+    rep(NA_real_, .N)
   }
- )]
+)]
+
+ # Ensure stop_loss is properly defined and below current price
+ if (!"stop_loss" %in% names(dt)) {
+   dt[, stop_loss := close * 0.95]  # Default to 5% below close if not set
+ } else {
+   dt[, stop_loss := pmin(stop_loss, close * 0.99)]
+ }
  
- # Calculate stop percentage
- dt[, stop_pct := {
-  tryCatch({
-   (close - stop_loss) / close * 100
-  }, error = function(e) {
-   log_message(paste0("Error calculating stop_pct: ", e$message))
-   rep(NA_real_, .N)
-  })
+ # Calculate take profit with 2:1 reward-to-risk ratio
+ dt[, take_profit := {
+   tryCatch({
+     close + (close - stop_loss) * 2
+   }, error = function(e) {
+     log_message(paste0("Error calculating take_profit: ", e$message))
+     close * 1.1 # Default to 10% above close on error
+   })
  }]
  
  # Calculate take profit percentage
- dt[, take_profit_pct := {
-  tryCatch({
-   (take_profit - close) / close * 100
-  }, error = function(e) {
-   log_message(paste0("Error calculating take_profit_pct: ", e$message))
-   rep(NA_real_, .N)
-  })
- }]
+ dt[, take_profit_pct := ((take_profit - close) / close) * 100]
  
  # Calculate risk/reward ratio with proper vectorization
  dt[, risk_reward := {
-  tryCatch({
-   risk <- close - stop_loss
-   reward <- take_profit - close
-   ifelse(abs(risk) < 1e-6, NA_real_, reward / risk)
-  }, error = function(e) {
-   log_message(paste0("Error calculating risk_reward: ", e$message))
-   rep(NA_real_, .N)
-  })
+   tryCatch({
+     risk <- close - stop_loss
+     reward <- take_profit - close
+     ifelse(abs(risk) < 1e-6, NA_real_, reward / risk)
+   }, error = function(e) {
+     log_message(paste0("Error calculating risk_reward: ", e$message))
+     rep(NA_real_, .N)
+   })
  }]
  
  return(dt)
@@ -1905,23 +1949,75 @@ add_metadata <- function(dt) {
    (stage_age >= optimal_holding_days & !is.na(optimal_holding_days)), by = company_id]
  
  # Evaluate close-to-stage conditions
+ log_message(sprintf("DEBUG: Starting partial signal evaluation..."))
  dt <- evaluate_partial_signals(dt)
+ log_message(sprintf("DEBUG: Completed partial signal evaluation"))
+  # Log data structure after partial signals
+  log_message(sprintf("DEBUG: Data dimensions after partial signals: %d rows, %d columns", nrow(dt), ncol(dt)))
+  log_message(sprintf("DEBUG: Sample of stage_ff values: %s", paste(head(unique(na.omit(dt$stage_ff))), collapse=", ")))
+  log_message(sprintf("DEBUG: Sample of close_to_stage_X columns: %s", 
+              paste(grep("close_to_stage_", names(dt), value=TRUE), collapse=", ")))
+  
+  # Check for any NA values in key columns
+  log_message(sprintf("DEBUG: NA check - stage_ff: %d of %d (%.2f%%)", 
+                     sum(is.na(dt$stage_ff)), nrow(dt), 
+                     round(mean(is.na(dt$stage_ff))*100, 2)))
  
  # Status assignment with risk-reward based conditions
+ log_message(sprintf("DEBUG: Starting status assignment..."))
  dt[, `:=`(status = {
   # Initialize with NO_ACTION
   result <- rep("NO_ACTION", .N)
   
-  # 1. ENTRY Conditions
+  # 1. ENTRY Conditions (Long only)
   entry_conditions <- 
-   (risk_reward >= 2.0) &          # Minimum 2:1 reward-to-risk
-   ((take_profit - close)/close * 100 >= 5) & # At least 5% upside
-   (stop_pct <= 10)             # Reasonable stop distance
+   (close > stop_loss) &        # Price must be above stop loss (long only)
+   (stage_ff %in% c(0, 1, 2, 3)) & # Enter in setup/accumulation/advancement stages
+   (stop_pct <= 10) &          # Reasonable stop distance (max 10%)
+   (stop_pct >= 1)             # Minimum stop distance (at least 1%)
   
   # 2. EXIT Conditions
-  exit_conditions <-
-   (close <= stop_loss) | (close >= take_profit) | # Hit stop or target
-   (stage_ff == 5 & stage_change == TRUE)      # Or entered distribution
+  # Stage-based targets and holding periods
+  stage_targets <- data.table(
+    stage = 0:5,
+    min_return_pct = c(0, 5, 10, 15, 20, 0),  # More conservative minimum returns
+    max_return_pct = c(0, 15, 25, 30, 40, 0),  # More realistic maximum returns
+    optimal_days = c(8, 14, 28, 42, 5, 3)      # From stage_defs
+  )
+  
+  # Calculate current return since entry and days in position
+  current_return <- (close / entry_price - 1) * 100
+  days_in_position <- as.numeric(difftime(date, entry_date, units = "days"))
+  
+  # Initialize exit conditions as FALSE
+  exit_conditions <- rep(FALSE, length(close))
+  
+  # Process each stage separately to ensure vector alignment
+  for(s in 0:5) {
+    # Get indices for current stage
+    stage_mask <- !is.na(stage_ff) & stage_ff == s
+    if(any(stage_mask)) {
+      # Get targets for current stage
+      stage_info <- stage_targets[stage == s]
+      
+      # Calculate exit conditions for this stage
+      stage_exits <- 
+        (close[stage_mask] <= stop_loss[stage_mask]) |  # Hit stop loss
+        (s == 5) |  # In distribution stage
+        (s == 4 & close[stage_mask] < shift(close[stage_mask], type = "lag")) |  # Early signs of topping
+        (current_return[stage_mask] >= stage_info$max_return_pct) |  # Reached max target
+        (days_in_position[stage_mask] >= stage_info$optimal_days &  # Held long enough
+         current_return[stage_mask] >= stage_info$min_return_pct)  # With minimum return
+      
+      # Update exit conditions for this stage
+      exit_conditions[stage_mask] <- stage_exits
+    }
+  }
+  
+  # Add debug logging
+  log_message(sprintf("Exit conditions: %d rows (%.1f%% of data)", 
+                     sum(exit_conditions, na.rm = TRUE),
+                     mean(exit_conditions, na.rm = TRUE) * 100))
   
   # 3. HOLD Conditions (only for positions not hitting exit conditions)
   hold_conditions <-
@@ -1952,37 +2048,40 @@ add_metadata <- function(dt) {
   result
  })]
  
- # Update entry/exit prices and PnL when status changes
- dt[, `:=`(
-  entry_price = {
-   # Set entry price on ENTRY status
-   fifelse(status == "ENTRY" & is.na(shift(entry_price, 1, type = "lag")), 
-      close, 
-      entry_price, 
-      na = NA_real_)
-  },
-  exit_price = {
-   # Set exit price on EXIT status
-   fifelse(status == "EXIT" & is.na(shift(exit_price, 1, type = "lag")), 
-      close, 
-      exit_price,
-      na = NA_real_)
-  },
-  entry_date = {
-   # Set entry date on ENTRY status
-   fifelse(status == "ENTRY" & is.na(shift(entry_date, 1, type = "lag")), 
-      as.character(date), 
-      entry_date,
-      na = NA_character_)
-  },
-  exit_date = {
-   # Set exit date on EXIT status
-   fifelse(status == "EXIT" & is.na(shift(exit_date, 1, type = "lag")), 
-      as.character(date), 
-      exit_date,
-      na = NA_character_)
-  }
- ), by = company_id]
+ # Track entry/exit prices and dates for current stage trade
+ dt[, c("entry_price", "exit_price", "entry_date", "exit_date") := {
+   # Initialize with current values
+   new_entry_price <- entry_price
+   new_entry_date <- entry_date
+   new_exit_price <- exit_price
+   new_exit_date <- exit_date
+   
+   # Get current stage
+   current_stage <- stage_ff
+   prev_stage <- shift(stage_ff, 1, type = "lag")
+   
+   # Check for stage changes
+   stage_changed <- !is.na(current_stage) & (is.na(prev_stage) | current_stage != prev_stage)
+   
+   # On new stage, clear previous trade data
+   new_entry_price[stage_changed] <- NA_real_
+   new_entry_date[stage_changed] <- NA_character_
+   new_exit_price[stage_changed] <- NA_real_
+   new_exit_date[stage_changed] <- NA_character_
+   
+   # Update entry on ENTRY status for current stage
+   is_entry <- startsWith(status, "ENTRY_")
+   new_entry_price[is_entry] <- close[is_entry]
+   new_entry_date[is_entry] <- as.character(date[is_entry])
+   
+   # Update exit on EXIT status for current stage
+   is_exit <- startsWith(status, "EXIT_")
+   new_exit_price[is_exit] <- close[is_exit]
+   new_exit_date[is_exit] <- as.character(date[is_exit])
+   
+   # Return updated columns
+   list(new_entry_price, new_exit_price, new_entry_date, new_exit_date)
+ }, by = company_id]
  
  # Function to generate data quality summary
  generate_data_quality_summary <- function(dt, context = "") {
@@ -2110,7 +2209,7 @@ add_metadata <- function(dt) {
    
    # Combine all parts conditionally
    message("Combining results...")
-   result <- fifelse(status == "NO_ACTION",
+   result <- fifelse(startsWith(status, "NO_ACTION"),
            "NO_ACTION",
            fifelse(nchar(pnl_info) > 0 | nchar(risk_info) > 0 | nchar(time_info) > 0,
                paste(base_info, pnl_info, risk_info, time_info, sep = " | "),
@@ -2121,6 +2220,7 @@ add_metadata <- function(dt) {
    result <- gsub("\\| \\| ", "| ", result)
    result <- gsub(" \\| $", "", result)
    result <- gsub("^ \\| ", "", result)
+   result <- gsub("^\\| ", "", result)
    
    message("Trade summary generation complete")
    return(result)
@@ -2151,10 +2251,8 @@ add_metadata <- function(dt) {
   if (all(c("pnl_pct", "entry_price", "take_profit_pct") %in% names(dt))) {
    dt[!is.na(pnl_pct) & !is.na(entry_price) & entry_price > 0,
     pnl_info := fifelse(!is.na(take_profit_pct),
-              paste0("PnL: ", 
-                 format(round(pnl_pct, 1), nsmall = 1), "%",
-                 " (Target: ", 
-                 format(round(take_profit_pct, 1), nsmall = 1), "%)"),
+              paste0("PnL: ", format(round(pnl_pct, 1), nsmall = 1), "%",
+                 " (Target: ", format(round(take_profit_pct, 1), nsmall = 1), "%)"),
               paste0("PnL: ", format(round(pnl_pct, 1), nsmall = 1), "%"))]
   }
   
@@ -2163,8 +2261,7 @@ add_metadata <- function(dt) {
   if (all(c("stop_loss", "stop_pct", "risk_reward", "entry_price") %in% names(dt))) {
    dt[!is.na(stop_loss) & !is.na(stop_pct) & !is.na(risk_reward) & 
      !is.na(entry_price) & entry_price > 0,
-    risk_info := paste0("Stop: ", 
-              format(round(stop_loss, 2), nsmall = 2), " (",
+    risk_info := paste0("Stop: ", format(round(stop_loss, 2), nsmall = 2), " (",
               format(round(stop_pct, 1), nsmall = 1), "%) | R:R 1:",
               format(round(risk_reward, 1), nsmall = 1))]
   }
@@ -2204,13 +2301,13 @@ add_metadata <- function(dt) {
  
  # Add data quality flags
  dt[, `:=`(
-  has_missing_prices = fifelse(status != "NO_ACTION" & 
+  has_missing_prices = fifelse(startsWith(status, "NO_ACTION") & 
                 (is.na(entry_price) | is.na(exit_price)), 
                1L, 0L, na = 0L),
-  has_invalid_dates = fifelse(status != "NO_ACTION" & 
+  has_invalid_dates = fifelse(startsWith(status, "NO_ACTION") & 
                 (is.na(entry_date) | is.na(exit_date)), 
                1L, 0L, na = 0L),
-  has_na_pnl = fifelse(status != "NO_ACTION" & is.na(pnl_pct), 1L, 0L, na = 0L)
+  has_na_pnl = fifelse(startsWith(status, "NO_ACTION") & is.na(pnl_pct), 1L, 0L, na = 0L)
  )]
  
  # Log data quality issues
@@ -2275,17 +2372,17 @@ add_metadata <- function(dt) {
  log_message("\nChecking for potential issues in key columns:")
  
  # Check entry_price
- if (any(is.na(dt$entry_price) & dt$status != "NO_ACTION")) {
+ if (any(is.na(dt$entry_price) & startsWith(dt$status, "NO_ACTION"))) {
   log_message(sprintf(" - Found %d rows with NA entry_price but non-NO_ACTION status",
-           sum(is.na(dt$entry_price) & dt$status != "NO_ACTION")))
+           sum(is.na(dt$entry_price) & startsWith(dt$status, "NO_ACTION"))))
  }
  
  # Check date columns
  date_cols <- c("entry_date", "exit_date")
  for (col in date_cols) {
-  if (any(is.na(dt[[col]]) & dt$status != "NO_ACTION")) {
+  if (any(is.na(dt[[col]]) & startsWith(dt$status, "NO_ACTION"))) {
    log_message(sprintf(" - Found %d rows with NA %s but non-NO_ACTION status",
-            sum(is.na(dt[[col]]) & dt$status != "NO_ACTION"),
+            sum(is.na(dt[[col]]) & startsWith(dt$status, "NO_ACTION")),
             col))
   }
  }
@@ -2337,8 +2434,8 @@ add_metadata <- function(dt) {
  }]
  
  # set entry/exit price/date
- dt[status == "ENTRY", `:=`(entry_price = close, entry_date = as.character(date))]
- dt[status == "EXIT", `:=`(exit_price = close, exit_date = as.character(date))]
+ dt[startsWith(status, "ENTRY_"), `:=`(entry_price = close, entry_date = as.character(date))]
+ dt[startsWith(status, "EXIT_"), `:=`(exit_price = close, exit_date = as.character(date))]
  
  # Handle entry/exit prices and dates with carry forward logic
  # First ensure entry_date and exit_date are Date type
@@ -2951,7 +3048,12 @@ main <- function() {
   log_message(sprintf("Generated output with %d rows and %d columns", 
            nrow(output), ncol(output)))
   
-  # 6.7 Filter to reference date and save to database
+  # 6.7 Save complete dataset for debugging
+  #log_message(sprintf("Saving complete dataset with %d rows to 'momentum_cycle_signals_full' table...", nrow(dt)))
+  #DBI::dbWriteTable(con, "momentum_cycle_signals_full", dt, overwrite = TRUE)
+  #log_message("Complete dataset saved successfully")
+  
+  # 6.8 Filter to reference date and save to production table
   log_message(sprintf("Filtering to reference date: %s before saving", ref_date))
   dt_ref <- dt[date == ref_date]
   
@@ -2959,21 +3061,30 @@ main <- function() {
    stop(sprintf("No data found for reference date: %s", ref_date))
   }
   
-  # 6.7 Save Results
-  log_message("Saving results...")
-  
-  # 6.7.1 Save to database
-  
-   log_message(sprintf("Saving %d rows to 'momentum_cycle_signals' table...", nrow(dt_ref)))
-   DBI::dbWriteTable(con, "momentum_cycle_signals", dt_ref, overwrite = TRUE)
+  # 6.9 Save filtered Results to production table
+  #log_message("Saving filtered results to production table...")
+  #log_message(sprintf("Saving %d rows to 'momentum_cycle_signals' table...", nrow(dt_ref)))
+  #DBI::dbWriteTable(con, "momentum_cycle_signals", dt_ref, overwrite = TRUE)
   
   
   # 6.7.2 Save to CSV
-  if (!dir.exists("output")) {
-   dir.create("output", recursive = TRUE)
-   log_message("Created output directory")
+  output_dir <- "/Users/chanderbhushan/stockmkt/output"
+  if (!dir.exists(output_dir)) {
+   dir.create(output_dir, recursive = TRUE, mode = "0755")
+   log_message(sprintf("Created output directory: %s", output_dir))
   }
-  log_message("  Data saved to database")
+  
+  # Save full dataset for clean trade tracker
+  full_output_file <- file.path(output_dir, "momentum_cycle_signals_full.csv")
+  fwrite(dt, full_output_file)
+  log_message(sprintf("Full dataset saved to: %s", full_output_file))
+  
+  # Save filtered dataset for reference
+  if (exists("dt_ref") && nrow(dt_ref) > 0) {
+    filtered_output_file <- file.path(output_dir, "momentum_cycle_signals_filtered.csv")
+    fwrite(dt_ref, filtered_output_file)
+    log_message(sprintf("Filtered dataset saved to: %s", filtered_output_file))
+  }
  })
  
    # Log completion
@@ -3146,19 +3257,37 @@ if (identical(environment(), globalenv())) {
   
   # 5.1.2 Final Status
   log_message("Script completed successfully", "SUCCESS")
-  
  }, error = function(e) {
-  # 5.1.3 Error Handling
-  error_msg <- sprintf("Fatal error in execution: %s", e$message)
-  log_message(error_msg, "ERROR")
-  
-  # Additional error handling (e.g., cleanup, notifications)
-  if (exists("con") && DBI::dbIsValid(con)) {
-   DBI::dbDisconnect(con)
-   log_message("Database connection closed due to error")
-  }
-  
-  # Re-throw the error to ensure proper exit code
-  stop(e)
+   # 5.1.3 Error Handling
+   error_msg <- if (is.null(e$message)) {
+     if (inherits(e, "simpleError")) {
+       as.character(e)
+     } else {
+       "Unknown error occurred"
+     }
+   } else {
+     e$message
+   }
+   
+   log_message(sprintf("Fatal error in execution: %s", error_msg), "ERROR")
+   
+   # Print stack trace for debugging
+   if (exists(".traceback")) {
+     log_message("Stack trace:", "ERROR")
+     log_message(utils::capture.output(print(.traceback())), "ERROR")
+   }
+   
+   # Additional error handling (e.g., cleanup, notifications)
+   if (exists("con") && DBI::dbIsValid(con)) {
+     tryCatch({
+       DBI::dbDisconnect(con)
+       log_message("Database connection closed due to error")
+     }, error = function(e) {
+       log_message(sprintf("Error closing database connection: %s", e$message), "ERROR")
+     })
+   }
+   
+   # Re-throw the error to ensure proper exit code
+   stop(simpleError(error_msg, call = sys.calls()[[1]]))
 })
 }
