@@ -40,7 +40,7 @@ get_db_con <- function() {
 save_to_database <- function() {
   # Check if required files exist
   required_files <- c(
-    "cleaned_trade_analysis.csv",
+    #"cleaned_trade_analysis.csv",
     "trade_details.csv",
     "performance_metrics.csv"
   )
@@ -77,7 +77,7 @@ save_to_database <- function() {
   
   # Save each file to database
   tryCatch({
-    safe_write_table(con, "cleaned_trade_analysis", "cleaned_trade_analysis.csv")
+    #safe_write_table(con, "cleaned_trade_analysis", "cleaned_trade_analysis.csv")
     safe_write_table(con, "trade_details", "trade_details.csv")
     safe_write_table(con, "performance_metrics", "performance_metrics.csv")
     
@@ -85,13 +85,8 @@ save_to_database <- function() {
             Sys.getenv("PGHOST"), ":", Sys.getenv("PGPORT"), "/", 
             Sys.getenv("PGDATABASE"))
     
-    # Show table summary
-    tables <- dbListTables(con)
-    message("\nTables in database:")
-    for (tbl in tables) {
-      n <- dbGetQuery(con, sprintf("SELECT COUNT(*) as count FROM %s", tbl))$count
-      message(sprintf("- %s: %d rows", tbl, n))
-    }
+    # Success message without listing tables
+    message("\nData successfully saved to database")
     
   }, error = function(e) {
     stop("Error saving to database: ", e$message)
