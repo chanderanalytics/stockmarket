@@ -140,11 +140,19 @@ generate_trade_summary <- function(dt) {
     company_id = character(),
     entry_date = as.Date(character()),
     entry_price = numeric(),
+    entry_stop_loss = numeric(),
     exit_date = as.Date(character()),
     exit_price = numeric(),
+    exit_stop_loss = numeric(),
     pnl_pct = numeric(),
     days_held = integer(),
-    status = character()
+    status = character(),
+    day_return = numeric(),
+    annualized_return = numeric(),
+    entry_trade_summary = character(),
+    entry_status = character(),
+    exit_trade_summary = character(),
+    exit_status = character()
   )
   
   # Process each company separately
@@ -166,7 +174,10 @@ generate_trade_summary <- function(dt) {
           company_id = comp_id,
           entry_date = as.Date(current_row$date),
           entry_price = current_row$entry_price,
-          entry_close = current_row$close
+          entry_stop_loss = ifelse(!is.null(current_row$stop_loss), current_row$stop_loss, NA_real_),
+          entry_close = current_row$close,
+          entry_trade_summary = ifelse(!is.null(current_row$trade_summary), current_row$trade_summary, ""),
+          entry_status = ifelse(!is.null(current_row$status), current_row$status, "")
         )
       }
       
@@ -177,16 +188,51 @@ generate_trade_summary <- function(dt) {
         pnl_pct <- (exit_price / current_trade$entry_close - 1) * 100
         days_held <- as.integer(as.Date(current_row$date) - current_trade$entry_date) + 1
         
+        # Calculate additional metrics
+        AbsolutePL <- (exit_price - current_trade$entry_price) * 1  # Assuming 1 share for now
+        day_return <- ifelse(days_held > 0, AbsolutePL / days_held, 0)
+        annualized_return <- ifelse(days_held > 0, (day_return * 252) / current_trade$entry_price * 100, 0)
+        
+        # Get the stop loss from the previous day
+        prev_day_stop_loss <- if (i > 1) comp_data[i-1, stop_loss] else NA_real_
+        
+        # Calculate price range metrics
+        trade_data <- comp_data[date >= current_trade$entry_date & date <= current_row$date]
+        max_price <- max(trade_data$high, na.rm = TRUE)
+        min_price <- min(trade_data$low, na.rm = TRUE)
+        price_range_pct <- (max_price - min_price) / current_trade$entry_price * 100
+        
+        # Calculate conventional drawdown
+        running_max <- cummax(trade_data$close)
+        drawdowns <- (running_max - trade_data$close) / running_max * 100
+        max_drawdown <- if (length(drawdowns) > 0) max(drawdowns, na.rm = TRUE) else 0
+        
         # Add to trades table
         trades <- rbind(trades, data.table(
           company_id = comp_id,
           entry_date = current_trade$entry_date,
           entry_price = current_trade$entry_price,
+          entry_stop_loss = current_trade$entry_stop_loss,
           exit_date = as.Date(current_row$date),
           exit_price = exit_price,
+          exit_stop_loss = prev_day_stop_loss,
           pnl_pct = pnl_pct,
           days_held = days_held,
-          status = ifelse(pnl_pct > 0, "WIN", "LOSS")
+          status = ifelse(pnl_pct > 0, "WIN", "LOSS"),
+          AbsolutePL = AbsolutePL,
+          day_return = day_return,
+          annualized_return = annualized_return,
+          entry_trade_summary = current_trade$entry_trade_summary,
+          entry_status = current_trade$entry_status,
+          exit_trade_summary = current_row$trade_summary,
+          exit_status = current_row$status,
+          AbsolutePL_cum = 0,
+          PercCumulativePL = 0,
+          high_water_mark = max_price,
+          max_drawdown = max_drawdown,
+          price_range_pct = price_range_pct,
+          running_max = max_price,
+          drawdown = 0
         ), fill = TRUE)
         
         # Reset for next trade
@@ -201,21 +247,64 @@ generate_trade_summary <- function(dt) {
       pnl_pct <- (last_row$close / current_trade$entry_close - 1) * 100
       days_held <- as.integer(as.Date(last_row$date) - current_trade$entry_date) + 1
       
+      # Calculate additional metrics for open trades
+      AbsolutePL <- (last_row$close - current_trade$entry_price) * 1  # Assuming 1 share for now
+      day_return <- ifelse(days_held > 0, AbsolutePL / days_held, 0)
+      annualized_return <- ifelse(days_held > 0, (day_return * 252) / current_trade$entry_price * 100, 0)
+      
       trades <- rbind(trades, data.table(
         company_id = comp_id,
         entry_date = current_trade$entry_date,
         entry_price = current_trade$entry_price,
+        entry_stop_loss = current_trade$entry_stop_loss,
         exit_date = as.Date(NA),
         exit_price = NA_real_,
+        exit_stop_loss = NA_real_,
         pnl_pct = pnl_pct,
         days_held = days_held,
-        status = "OPEN"
+        status = "OPEN",
+        AbsolutePL = AbsolutePL,
+        day_return = day_return,
+        annualized_return = annualized_return,
+        entry_trade_summary = current_trade$entry_trade_summary,
+        entry_status = current_trade$entry_status,
+        exit_trade_summary = "",
+        exit_status = "",
+        AbsolutePL_cum = 0,
+        PercCumulativePL = 0,
+        high_water_mark = last_row$high,
+        max_drawdown = 0,
+        price_range_pct = 0,
+        running_max = last_row$high,
+        drawdown = 0
       ), fill = TRUE)
     }
   }
   
   # Calculate summary statistics if we have trades
   if (nrow(trades) > 0) {
+    # Ensure all numeric columns are properly typed
+    numeric_cols <- c('AbsolutePL', 'AbsolutePL_cum', 'PercCumulativePL', 'high_water_mark', 
+                     'max_drawdown', 'price_range_pct', 'running_max', 'drawdown')
+    for (col in numeric_cols) {
+      if (col %in% names(trades)) {
+        trades[, (col) := as.numeric(get(col))]
+      }
+    }
+    
+    # Add cumulative PnL by company
+    trades <- trades[order(company_id, entry_date)]
+    trades[, AbsolutePL_cum := cumsum(AbsolutePL), by = company_id]
+    
+    # Calculate percentage cumulative P&L
+    trades[, PercCumulativePL := {
+      if (.N > 0) {
+        cumprod(1 + pnl_pct/100) - 1
+      } else {
+        numeric(0)
+      }
+    }, by = company_id]
+    
     # Basic metrics
     total_trades <- nrow(trades)
     winning_trades <- nrow(trades[status == "WIN"])
@@ -232,10 +321,9 @@ generate_trade_summary <- function(dt) {
       abs(sum(trades[status == "WIN"]$pnl_pct) / sum(trades[status == "LOSS"]$pnl_pct)) 
       else Inf
       
-    # Calculate max drawdown
-    trades[, cum_pnl := cumsum(pnl_pct)]
-    trades[, high_water_mark := cummax(cum_pnl)]
-    trades[, drawdown := high_water_mark - cum_pnl]
+    # Calculate max drawdown per company
+    trades[, high_water_mark := cummax(PercCumulativePL), by = company_id]
+    trades[, drawdown := high_water_mark - PercCumulativePL]
     max_drawdown <- max(trades$drawdown, na.rm = TRUE)
     
     # Calculate risk-adjusted returns
@@ -349,14 +437,18 @@ if (nrow(trade_summary) > 0) {
     total_loss <- abs(sum(dt[status == "LOSS"]$pnl_pct, na.rm = TRUE))
     profit_factor <- if (total_loss > 0) round(total_profit / total_loss, 2) else Inf
     
-    # Calculate max drawdown
-    dt[, cum_pnl := cumsum(pnl_pct)]
-    dt[, high_water_mark := cummax(cum_pnl)]
-    dt[, drawdown := high_water_mark - cum_pnl]
-    max_drawdown <- if (nrow(dt) > 0) round(max(dt$drawdown, na.rm = TRUE), 2) else 0
-    
-    # Calculate recovery factor
-    recovery_factor <- if (max_drawdown > 0) round(max(dt$cum_pnl, na.rm = TRUE) / max_drawdown, 2) else Inf
+    # Calculate max drawdown for the company
+    if (nrow(dt) > 0) {
+      dt[, high_water_mark := cummax(PercCumulativePL)]
+      dt[, drawdown := high_water_mark - PercCumulativePL]
+      max_drawdown <- round(max(dt$drawdown, na.rm = TRUE), 2)
+      
+      # Calculate recovery factor
+      recovery_factor <- if (max_drawdown > 0) round(max(dt$PercCumulativePL, na.rm = TRUE) / max_drawdown, 2) else Inf
+    } else {
+      max_drawdown <- 0
+      recovery_factor <- Inf
+    }
     
     # Calculate Sharpe and Sortino ratios (using 0% as risk-free rate for simplicity)
     returns <- company_data[status %in% c("WIN", "LOSS")]$pnl_pct / 100
