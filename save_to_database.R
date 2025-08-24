@@ -7,14 +7,9 @@
 # - PGUSER: Database username
 # - PGPASSWORD: Database password
 
-# Load required packages
-if (!require("data.table")) install.packages("data.table")
-if (!require("DBI")) install.packages("DBI")
-if (!require("RPostgres")) install.packages("RPostgres")
+source("data_ingestion/Rscripts/0_setup_renv.R")
 
-library(data.table)
-library(DBI)
-library(RPostgres)
+
 
 # Function to get database connection
 get_db_con <- function() {
