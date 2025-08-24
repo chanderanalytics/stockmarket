@@ -1,14 +1,6 @@
 # 3_companies_prices_features.R
 
 source("data_ingestion/Rscripts/0_setup_renv.R")
-
-# Load libraries
-library(DBI)
-library(RPostgres)
-library(data.table)
-library(zoo)
-library(futile.logger)
-
 test_n <- NA  # Set to NA to process all companies, or to a number for testing (e.g., 10)
 
 # Set up logging
@@ -61,16 +53,20 @@ if (length(args) > 1 && !is.na(as.numeric(args[2]))) {
   cat(sprintf("[INFO] Using test_n: %d\n", test_n))
 }
 
-# For each company, if no price for today, insert from current_price
+# Use reference date for all operations
+ref_date <- today  # Store the reference date
+cat(sprintf("[DEBUG] Using reference date: %s\n", as.character(ref_date)))
+
+# For each company, if no price for reference date, insert from current_price
 for (i in 1:nrow(companies)) {
   code <- companies$company_code[i]
   cid <- companies$id[i]
   if (length(code) != 1 || is.na(code) || code == "" || length(cid) != 1 || is.na(cid) || cid == "") next
-  price_today <- prices[company_code %in% code & date == today]
-  if (nrow(price_today) == 0 && !is.na(companies$current_price[i])) {
+  # Check if there's a price for the reference date
+  if (nrow(prices[company_id == cid & date == ref_date]) == 0 && !is.na(companies$current_price[i])) {
     dbExecute(con, sprintf(
       "INSERT INTO prices (company_code, company_id, date, close, last_modified) VALUES ('%s', %d, '%s', %f, '%s')",
-      code, cid, today, companies$current_price[i], today
+      code, cid, ref_date, companies$current_price[i], ref_date
     ))
     cat(sprintf("Inserted today's price from companies table for %s: %f\n", code, companies$current_price[i]))
   }
@@ -163,8 +159,9 @@ tryCatch({
   # Find top 50 ids by number of price records in joined data
   company_counts <- joined_dt[, .N, by = id][order(-N)]
   top_ids <- company_counts[ , id]  # Process all companies, not just the top 50
-  # Filter to only companies with price data for 'today'
-  ids_with_data <- unique(prices_dt[date == today, company_id])
+  # Filter to only companies with price data for the reference date
+  ids_with_data <- unique(prices_dt[date == ref_date, company_id])
+  cat(sprintf("[DEBUG] Found %d companies with price data for %s\n", length(ids_with_data), as.character(ref_date)))
   top_ids <- top_ids[top_ids %in% ids_with_data]
   if (!is.na(test_n) && !is.null(test_n)) {
     top_ids <- top_ids[1:min(test_n, length(top_ids))]

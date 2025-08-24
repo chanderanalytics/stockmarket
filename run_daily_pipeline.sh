@@ -30,9 +30,8 @@ extract_date_from_csv() {
         # Extract date from filename like screener_export_20250806.csv
         local filename=$(basename "$csv_file")
         if [[ $filename =~ screener_export_([0-9]{8})\.csv ]]; then
-            local date_str="${BASH_REMATCH[1]}"
-            # Convert YYYYMMDD to YYYY-MM-DD
-            echo "${date_str:0:4}-${date_str:4:2}-${date_str:6:2}"
+            # Keep the date in YYYYMMDD format for consistent file naming
+            echo "${BASH_REMATCH[1]}"
         else
             echo "Error: Could not extract date from CSV filename: $csv_file"
             exit 1
@@ -118,12 +117,14 @@ main() {
     durations+=("$duration")
 
     # 13. Import insider trades (incremental)
-    # Default path: data/insider_trades/insider_trades_YYYYMMDD.csv
+    # Use same date as reference date from input CSV
+    # Format: data/insider_trades/insider_trades_YYYYMMDD.csv
     # Can be overridden with INSIDER_TRADES_CSV environment variable
     # Optional: INSIDER_MAX_ROWS to limit rows during testing
-    DEFAULT_INSIDER_TRADES_CSV="data/insider_trades/insider_trades_$(date +'%Y%m%d').csv"
+    DEFAULT_INSIDER_TRADES_CSV="data/insider_trades/insider_trades_${date_from_csv}.csv"
     : ${INSIDER_TRADES_CSV:=$DEFAULT_INSIDER_TRADES_CSV}
     
+    log_message "Looking for insider trades file: $INSIDER_TRADES_CSV"
     if [ -f "$INSIDER_TRADES_CSV" ]; then
         if [ -n "$INSIDER_MAX_ROWS" ]; then
             duration=$(run_command "Import insider trades incremental" \
@@ -197,6 +198,26 @@ main() {
     duration=$(run_command "Calculate prices max min" \
         "Rscript data_ingestion/Rscripts/prices_max_min.R" "14")
     durations+=("$duration")
+    
+    # 15. Update insider metrics
+    duration=$(run_command "Update insider metrics" \
+        "python3 data_ingestion/update_insider_metrics.py" "15")
+    durations+=("$duration")
+    
+    # 16. Run momentum trading model
+    duration=$(run_command "Run momentum trading model" \
+        "Rscript data_ingestion/Rscripts/mmtm.R $date_from_csv" "16")
+    durations+=("$duration")
+    
+    # 17. Run trade tracker analysis
+    duration=$(run_command "Run trade tracker analysis" \
+        "Rscript clean_trade_tracker.R" "17")
+    durations+=("$duration")
+    
+    # 18. Save trade analysis to database
+    duration=$(run_command "Save trade analysis to database" \
+        "Rscript save_to_database.R" "18")
+    durations+=("$duration")
 
     
     # Get final database counts
@@ -237,6 +258,10 @@ main() {
     log_message "✓ 11. Calculate composite quality score (${durations[11]} min)"
     log_message "✓ 12. Calculate indices features (${durations[12]} min)"
     log_message "✓ 14. Calculate prices max min (${durations[14]} min)"
+    log_message "✓ 15. Update insider metrics (${durations[15]} min)"
+    log_message "✓ 16. Run momentum trading model (${durations[16]} min)"
+    log_message "✓ 17. Run trade tracker analysis (${durations[17]} min)"
+    log_message "✓ 18. Save trade analysis to database (${durations[18]} min)"
     # Check for errors in log
     if grep -q "ERROR\|Failed\|Error" "$log_file"; then
         log_message "⚠️  Warnings or errors found during run! Check log file for details."
