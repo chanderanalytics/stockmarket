@@ -48,6 +48,12 @@ venv.bak/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+
+# Backup files
+backups/*.sql
+*.bak
+*.backup
+*.sql.gz
 Thumbs.db
 
 # Database
