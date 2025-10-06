@@ -13,9 +13,11 @@ Defines SQLAlchemy ORM models for:
 These models are used by both the backend API and data ingestion scripts.
 """
 
-from sqlalchemy import Column, Integer, String, Numeric, Date, Text, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Numeric, Date, Text, ForeignKey, BigInteger, Float, DateTime, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.schema import Index
+from sqlalchemy.schema import Index, UniqueConstraint
+from datetime import datetime
 
 Base = declarative_base()
 
@@ -134,6 +136,62 @@ Index('idx_prices_company_id_date', Price.company_id, Price.date)
 # Add index for unified code approach
 Index('idx_prices_company_code_date', Price.company_code, Price.date)
 
+class HistoricalPrice(Base):
+    """
+    Enhanced historical price data with additional metrics and tracking.
+    This table is optimized for analytical queries and backtesting.
+    """
+    __tablename__ = 'historical_prices'
+    
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), index=True)
+    company_code = Column(String(50), nullable=False, index=True)  # NSE or BSE code
+    company_name = Column(String(255), nullable=True)
+    exchange = Column(String(10), nullable=False)  # 'NSE' or 'BSE'
+    date = Column(Date, nullable=False, index=True)
+    
+    # OHLCV data
+    open = Column(Numeric(20, 2), nullable=True)
+    high = Column(Numeric(20, 2), nullable=True)
+    low = Column(Numeric(20, 2), nullable=True)
+    close = Column(Numeric(20, 2), nullable=False)
+    volume = Column(BigInteger, nullable=True)
+    
+    # Additional price data
+    last_price = Column(Numeric(20, 2), nullable=True)
+    prev_close = Column(Numeric(20, 2), nullable=True)
+    vwap = Column(Numeric(20, 2), nullable=True)  # Volume Weighted Average Price
+    
+    # Derived metrics
+    day_change = Column(Numeric(10, 2), nullable=True)  # Absolute change
+    day_change_pct = Column(Numeric(10, 4), nullable=True)  # Percentage change
+    
+    # Technical indicators (can be calculated on the fly or stored for performance)
+    sma_20 = Column(Numeric(20, 2), nullable=True)  # 20-day Simple Moving Average
+    sma_50 = Column(Numeric(20, 2), nullable=True)  # 50-day SMA
+    sma_200 = Column(Numeric(20, 2), nullable=True)  # 200-day SMA
+    
+    # Volume metrics
+    volume_20d_avg = Column(BigInteger, nullable=True)  # 20-day average volume
+    
+    # Metadata
+    is_adjusted = Column(Boolean, default=False, nullable=False)  # If prices are adjusted for splits/dividends
+    data_source = Column(String(50), nullable=True)  # Source of the data (e.g., 'NSE', 'BSE', 'Yahoo')
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Add a composite unique constraint on company_code and date
+    __table_args__ = (
+        UniqueConstraint('company_code', 'date', name='uq_historical_price_company_date'),
+    )
+    
+    def __repr__(self):
+        return f"<HistoricalPrice(company={self.company_code}, date={self.date}, close={self.close})>"
+
+# Add indexes for common query patterns
+Index('idx_historical_prices_company_date', HistoricalPrice.company_code, HistoricalPrice.date, unique=True)
+Index('idx_historical_prices_date', HistoricalPrice.date)
+Index('idx_historical_prices_exchange', HistoricalPrice.exchange)
+
 class CorporateAction(Base):
     """
     Corporate actions such as splits, dividends, etc.
@@ -239,19 +297,43 @@ class InsiderTrade(Base):
     """Represents an insider trading transaction."""
     __tablename__ = 'insidertrades'
     
-    id = Column(Integer, primary_key=True)
-    symbol = Column(String, nullable=False)
-    company = Column(String, nullable=False)
-    regulation = Column(String, nullable=False)
-    acquirer_disposer = Column(String, nullable=False)
-    category = Column(String, nullable=False)
-    date = Column(Date)
-    last_modified = Column(Date, nullable=True)
+    symbol = Column(String(20), primary_key=True, nullable=False)
+    company = Column(String(200), nullable=False)
+    regulation = Column(String(200), nullable=False)
+    name_of_acquirer_disposer = Column(String(200), primary_key=True, nullable=False)
+    category_of_person = Column(String(200), nullable=False)
+    security_type_prior = Column(String(100))
+    security_quantity_prior = Column(Integer)
+    security_percent_prior = Column(Float)
+    security_type_acquired = Column(String(100))
+    security_quantity_acquired = Column(Integer)
+    security_value_acquired = Column(Float)
+    transaction_type = Column(String(100))
+    security_type_post = Column(String(100))
+    security_quantity_post = Column(Integer)
+    security_percent_post = Column(Float)
+    date_from = Column(Date, primary_key=True)
+    date_to = Column(Date)
+    date_of_intimation = Column(Date)
+    mode_of_acquisition = Column(String(200), primary_key=True)
+    derivative_type = Column(String(100))
+    derivative_specification = Column(String(200))
+    notional_value_buy = Column(Float)
+    contract_lot_size_buy = Column(Integer)
+    notional_value_sell = Column(Float)
+    contract_lot_size_sell = Column(Integer)
+    exchange = Column(String(100))
+    remark = Column(String(500))
+    broadcast_date = Column(Date)
+    xbrl_url = Column(String(500))
+    last_modified = Column(DateTime, nullable=False)
+    data = Column(JSONB, nullable=False)
+    broadcast_timestamp = Column(DateTime, primary_key=True)
 
 # Add indexes for insider trades
 Index('idx_insidertrades_symbol', InsiderTrade.symbol)
 Index('idx_insidertrades_company', InsiderTrade.company)
-Index('idx_insidertrades_date', InsiderTrade.date)
+Index('idx_insidertrades_date', InsiderTrade.date_from)
 
 class InstitutionalHolder(Base):
     """

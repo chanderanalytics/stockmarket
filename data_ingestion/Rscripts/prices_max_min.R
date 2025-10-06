@@ -31,25 +31,71 @@ db_con <- dbConnect(
   password = password
 )
 
-  prices_dt <- as.data.table(dbGetQuery(db_con, "SELECT * FROM prices"))
+tryCatch({
+  # Get price data from the v2 compatible view
+  flog.info("Fetching price data from prices_v2_compatible view...")
+  query <- "
+    SELECT 
+      company_id,
+      company_name,
+      date,
+      close as adj_close
+    FROM prices_v2_compatible
+  "
+  prices_dt <- as.data.table(dbGetQuery(db_con, query))
+  
+  # Process data
+  flog.info("Processing data...")
   prices_dt[, date := as.Date(date)]
-  setorder(prices_dt, company_name, -date)
-  prices_dt[, row_num := seq_len(.N), by = company_name]
-  prices_dt[, max_price_historical:= max(adj_close), by="company_name"]
-  prices_dt[, min_price_historical:= min(adj_close), by="company_name"]
-  prices_dt[, cmp_from_max:= (max_price_historical - adj_close) / adj_close, by="company_name"]
-  prices_dt[, cmp_from_min:= (adj_close - min_price_historical) / min_price_historical, by="company_name"]
-  prices_dt[, max_date := date[which.max(adj_close)], by = company_name]
-  prices_dt[, min_date := date[which.min(adj_close)], by = company_name]
-  prices_dt <- prices_dt[row_num==1,]
-
-# Write to database
-dbWriteTable(db_con, "prices_max_min", as.data.frame(prices_dt), overwrite = TRUE)
-
-flog.info("Results written to database table")
-
-
-  # Disconnect
-  dbDisconnect(db_con)
-  flog.info("Disconnected from database. Script complete.")
-
+  
+  # Ensure we have valid data
+  prices_dt <- prices_dt[!is.na(company_id) & !is.na(company_name) & !is.na(adj_close) & adj_close > 0]
+  
+  # Sort by company_id and date (newest first)
+  setorder(prices_dt, company_id, -date)
+  
+  # Add row numbers for each company_id
+  prices_dt[, row_num := seq_len(.N), by = company_id]
+  
+  # Calculate max/min prices and dates (grouped by company_id)
+  prices_dt[, `:=`(
+    max_price_historical = max(adj_close, na.rm = TRUE),
+    min_price_historical = min(adj_close, na.rm = TRUE)
+  ), by = company_id]
+  
+  # Calculate percentages
+  prices_dt[is.finite(max_price_historical) & adj_close > 0,
+          cmp_from_max := ((adj_close - max_price_historical) / max_price_historical) * 100]
+          
+  prices_dt[is.finite(min_price_historical) & min_price_historical > 0,
+          cmp_from_min := ((adj_close - min_price_historical) / min_price_historical) * 100]
+  
+  # Get dates for min/max prices (grouped by company_id)
+  prices_dt[, `:=`(
+    max_date = date[which.max(adj_close)][1],  # Take first date if multiple max values
+    min_date = date[which.min(adj_close)][1]   # Take first date if multiple min values
+  ), by = company_id]
+  
+  # Keep only the most recent row for each company_id
+  result_dt <- prices_dt[row_num == 1, ]
+  
+  # Truncate and update the table
+  flog.info("Truncating prices_max_min table...")
+  dbExecute(db_con, "TRUNCATE TABLE prices_max_min")
+  
+  # Write to database
+  flog.info("Writing results to database...")
+  dbWriteTable(db_con, "prices_max_min", as.data.frame(result_dt), append = TRUE)
+  flog.info(sprintf("Successfully updated data for %d companies", nrow(result_dt)))
+  
+}, error = function(e) {
+  flog.error("Error in script: %s", e$message)
+  stop(e)
+}, finally = {
+  # Ensure database connection is closed
+  if (exists("db_con") && dbIsValid(db_con)) {
+    dbDisconnect(db_con)
+    flog.info("Disconnected from database.")
+  }
+  flog.info("Script completed")
+})

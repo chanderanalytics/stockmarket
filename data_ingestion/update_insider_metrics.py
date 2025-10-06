@@ -4,25 +4,33 @@ Script to calculate and update cumulative insider trading metrics by company and
 import sys
 import os
 import traceback
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from sqlalchemy import create_engine, func, text
-from sqlalchemy.orm import sessionmaker
-from backend.models import Base, InsiderTrade
-from datetime import datetime, date
 import logging
 import argparse
-from sqlalchemy.dialects.postgresql import insert
+from datetime import datetime, date
+from pathlib import Path
 
-# Configure logging
+# Set up logging first
+log_dir = Path('log')
+log_dir.mkdir(exist_ok=True)  # Create log directory if it doesn't exist
+log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
+log_file = log_dir / f'insider_metrics_update_{log_datetime}.log'
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('insider_metrics_update.log')
+        logging.FileHandler(log_file, mode='a')
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Now import other dependencies after setting up logging
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from sqlalchemy import create_engine, func, text
+from sqlalchemy.orm import sessionmaker
+from backend.models import Base, InsiderTrade
+from sqlalchemy.dialects.postgresql import insert
 
 # Database connection
 DATABASE_URL = 'postgresql://stockuser:stockpass@localhost:5432/stockdb'
@@ -33,16 +41,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to connect to the database: {e}")
     sys.exit(1)
-
-# Set up logging
-log_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
-logging.basicConfig(
-    filename=f'log/insider_metrics_update_{log_datetime}.log',
-    filemode='a',
-    format='%(asctime)s %(levelname)s: %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 class InsiderMetricsUpdater:
     def __init__(self, session):
@@ -136,7 +134,7 @@ class InsiderMetricsUpdater:
             query = self.session.query(InsiderTrade)
             if last_processed_date:
                 logger.info(f"Last processed date: {last_processed_date}")
-                query = query.filter(InsiderTrade.date > last_processed_date)
+                query = query.filter(InsiderTrade.date_from > last_processed_date)
             else:
                 logger.info("No previous processing date found, will process all trades")
             

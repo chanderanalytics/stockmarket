@@ -84,7 +84,7 @@ main() {
     # Check if CSV file is provided
     if [[ $# -eq 0 ]]; then
         echo "Usage: $0 <csv_file>"
-        echo "Example: $0 data/screener_export_20250806.csv"
+        echo "Example: $0 data/screener_export/screener_export_20250806.csv"
         exit 1
     fi
     
@@ -111,10 +111,41 @@ main() {
     # Initialize duration tracking
     declare -a durations=()
     
+    # Set common paths
+    BHAVCOPY_DIR="data/bhavcopies"
+    MASTER_CSV="data/master_bhavcopy.csv"
+    MASTER_WITH_NAMES="data/master_bhavcopy_with_names.csv"
+    PROCESSED_CSV="data/db_ready.csv"
+    BSE_MAPPING="data/BSE_Sector_Mapping.csv"
+    
+
+
     # 1. Import companies from Screener CSV
     duration=$(run_command "Import companies from Screener CSV" \
         "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/1.1_import_screener_companies.py $csv_file" "1")
     durations+=("$duration")
+
+    
+    # 000. Create daily bhavcopy
+    duration=$(run_command "Create daily bhavcopy" \
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/000.create_daily_bhavcopy.py \"$BHAVCOPY_DIR\" \"$MASTER_CSV\"" "00")
+    durations+=("$duration")
+    
+    # 001. Add company names to bhavcopy
+    duration=$(run_command "Add company names to bhavcopy" \
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/001.add_company_names.py \"$MASTER_CSV\" \"$MASTER_WITH_NAMES\" \"$BSE_MAPPING\"" "01")
+    durations+=("$duration")
+    
+    # 002. Create database-ready CSV
+    duration=$(run_command "Create database-ready CSV" \
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/002.create_db_csv.py \"$MASTER_WITH_NAMES\" \"$PROCESSED_CSV\"" "02")
+    durations+=("$duration")
+    
+    # 003. Insert data into database
+    duration=$(run_command "Insert data into prices_bhavcopy2 table " \
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/003.insert_to_db.py \"$PROCESSED_CSV\"" "03")
+    durations+=("$duration")
+
 
     # 13. Import insider trades (incremental)
     # Use same date as reference date from input CSV
@@ -128,10 +159,10 @@ main() {
     if [ -f "$INSIDER_TRADES_CSV" ]; then
         if [ -n "$INSIDER_MAX_ROWS" ]; then
             duration=$(run_command "Import insider trades incremental" \
-                "python3 data_ingestion/onetime/import_insider_trades_incremental.py \"$INSIDER_TRADES_CSV\" --max-rows $INSIDER_MAX_ROWS" "13")
+                "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/import_insider_trades_incremental.py \"$INSIDER_TRADES_CSV\" --max-rows $INSIDER_MAX_ROWS" "13")
         else
             duration=$(run_command "Import insider trades incremental" \
-                "python3 data_ingestion/onetime/import_insider_trades_incremental.py \"$INSIDER_TRADES_CSV\"" "13")
+                "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/import_insider_trades_incremental.py \"$INSIDER_TRADES_CSV\"" "13")
         fi
         durations+=("$duration")
     else
@@ -139,14 +170,14 @@ main() {
     fi
     
     
-    # 2. Fetch historical prices
-    duration=$(run_command "Fetch historical prices (10 days)" \
-        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/2.1_onetime_prices.py --days 10 --csv_file $csv_file" "2")
-    durations+=("$duration")
+    # 2. Fetch historical prices --- delete
+    #duration=$(run_command "Fetch historical prices (10 days)" \
+    #    "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/2.1_onetime_prices.py --days 10 --csv_file $csv_file" "2")
+    #durations+=("$duration")
     
     # 3. Fetch corporate actions
     #duration=$(run_command "Fetch corporate actions (10 days)" \
-    #    "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/3.1_onetime_corporate_actions.py --days 10 --csv-file $csv_file" "3")
+    #    "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/3.1_onetime_corporate_actions.py --csv-file $csv_file" "3")
     #durations+=("$duration")
     
     # 4. Fetch indices data
@@ -165,10 +196,12 @@ main() {
     durations+=("$duration")
     
     # 7. Calculate price features
+    formatted_date=$(date -j -f "%Y%m%d" "$date_from_csv" "+%Y-%m-%d" 2>/dev/null || date -d "$date_from_csv" "+%Y-%m-%d" 2>/dev/null || echo "$date_from_csv")
     duration=$(run_command "Calculate price features" \
-        "Rscript data_ingestion/Rscripts/3_companies_prices_features.R $date_from_csv" "7")
+        "Rscript data_ingestion/Rscripts/3_companies_prices_features.R $formatted_date" "7")
     durations+=("$duration")
     
+
     # 8. Calculate corporate action flags
     duration=$(run_command "Calculate corporate action flags" \
         "Rscript data_ingestion/Rscripts/4_corporate_action_flags.R" "8")
@@ -190,8 +223,10 @@ main() {
     durations+=("$duration")
     
     # 12. Calculate indices features
+    # Convert date from YYYYMMDD to YYYY-MM-DD format for the R script
+    formatted_date=$(date -j -f "%Y%m%d" "$date_from_csv" "+%Y-%m-%d" 2>/dev/null || date -d "$date_from_csv" "+%Y-%m-%d" 2>/dev/null || echo "$date_from_csv")
     duration=$(run_command "Calculate indices features" \
-        "Rscript data_ingestion/Rscripts/8_indices_features.R $date_from_csv" "12")
+        "Rscript data_ingestion/Rscripts/8_indices_features.R $formatted_date" "12")
     durations+=("$duration")
 
     # 14. Calculate prices max min
@@ -201,22 +236,24 @@ main() {
     
     # 15. Update insider metrics
     duration=$(run_command "Update insider metrics" \
-        "python3 data_ingestion/update_insider_metrics.py" "15")
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/update_insider_metrics.py" "15")
     durations+=("$duration")
     
     # 16. Run momentum trading model
+    # Format date from YYYYMMDD to YYYY-MM-DD
+    formatted_date=$(date -j -f "%Y%m%d" "$date_from_csv" "+%Y-%m-%d" 2>/dev/null || date -d "$date_from_csv" "+%Y-%m-%d" 2>/dev/null || echo "$date_from_csv")
     duration=$(run_command "Run momentum trading model" \
-        "Rscript data_ingestion/Rscripts/mmtm.R $date_from_csv" "16")
+        "Rscript data_ingestion/Rscripts/9_mmtm_oldversion.R $formatted_date" "16")
     durations+=("$duration")
     
     # 17. Run trade tracker analysis
     duration=$(run_command "Run trade tracker analysis" \
-        "Rscript clean_trade_tracker.R" "17")
+        "Rscript data_ingestion/Rscripts/10_clean_trade_tracker.R" "17")
     durations+=("$duration")
     
     # 18. Save trade analysis to database
     duration=$(run_command "Save trade analysis to database" \
-        "Rscript save_to_database.R" "18")
+        "Rscript data_ingestion/Rscripts/11_save_to_database.R" "18")
     durations+=("$duration")
 
     
@@ -244,9 +281,13 @@ main() {
     
     # Summary of steps completed
     log_message "Summary of steps completed:"
-    log_message "✓ 1. Import companies from Screener CSV (${durations[0]} min)"
-    log_message "✓ 13. Fetch insider trades nse ({$durations[13]} min)"
-    log_message "✓ 2. Fetch historical prices (${durations[2]} min)"
+    log_message "✓ 00. Create daily bhavcopy (${durations[00]} min)"
+    log_message "✓ 01. Add company names to bhavcopy (${durations[01]} min)"
+    log_message "✓ 02. Create database-ready CSV (${durations[02]} min)"
+    log_message "✓ 03. Insert data into database (${durations[03]} min)"
+    log_message "✓ 1. Import companies from Screener CSV (${durations[1]} min)"
+    log_message "✓ 13. Fetch insider trades nse (${durations[13]} min)"
+    #log_message "✓ 2. Fetch historical prices (${durations[2]} min)"
     #log_message "✓ 3. Fetch corporate actions (${durations[3]} min)"
     log_message "✓ 4. Fetch indices data (${durations[4]} min)"
     log_message "✓ 5. Data quality check (${durations[5]} min)"

@@ -63,9 +63,6 @@ tmp/
 # Test files
 test_screener_*.csv
 
-# Superset
-superset/
-
 # Secrets and config
 *.env.*
 secrets/

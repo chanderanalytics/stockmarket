@@ -36,7 +36,8 @@ con <- dbConnect(
 )
 
 companies <- as.data.table(dbReadTable(con, "companies"))
-prices <- as.data.table(dbReadTable(con, "prices"))
+# Use the prices_v2_compatible view instead of direct table access
+prices <- as.data.table(dbReadTable(con, "prices_v2_compatible"))
 today <- Sys.Date()
 
 # Allow override of 'today' via command-line argument
@@ -65,7 +66,7 @@ for (i in 1:nrow(companies)) {
   # Check if there's a price for the reference date
   if (nrow(prices[company_id == cid & date == ref_date]) == 0 && !is.na(companies$current_price[i])) {
     dbExecute(con, sprintf(
-      "INSERT INTO prices (company_code, company_id, date, close, last_modified) VALUES ('%s', %d, '%s', %f, '%s')",
+      "INSERT INTO prices_v2_compatible (company_code, company_id, date, close, last_modified) VALUES ('%s', %d, '%s', %f, '%s')",
       code, cid, ref_date, companies$current_price[i], ref_date
     ))
     cat(sprintf("Inserted today's price from companies table for %s: %f\n", code, companies$current_price[i]))
@@ -80,7 +81,7 @@ tryCatch({
   companies_dt <- as.data.table(dbGetQuery(db_con, companies_query))
   print('Columns in companies_dt:')
   print(names(companies_dt))
-  prices_dt <- as.data.table(dbGetQuery(db_con, "SELECT * FROM prices"))
+  prices_dt <- as.data.table(dbGetQuery(db_con, "SELECT *, total_traded_quantity as volume FROM prices_v2_compatible"))
   flog.info("Loaded %d companies and %d price records", nrow(companies_dt), nrow(prices_dt))
 
   # Ensure date is Date type

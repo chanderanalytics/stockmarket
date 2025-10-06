@@ -25,9 +25,9 @@ db_con <- dbConnect(
   password = password
 )
 
-# Load prices table
-flog.info("Loading prices table from database...")
-db_query <- "SELECT company_id, date, adj_close, volume FROM prices"
+# Load prices table using the view
+flog.info("Loading prices data from prices_v2_compatible view...")
+db_query <- "SELECT company_id, date, close as adj_close, total_traded_quantity as volume FROM prices_v2_compatible"
 prices_dt <- as.data.table(dbGetQuery(db_con, db_query))
 prices_dt[, date := as.Date(date)]
 prices_dt[, company_id := as.character(company_id)]
@@ -38,12 +38,12 @@ corp_action_flags <- as.data.table(dbReadTable(db_con, "corp_action_flags"))
 corp_action_flags[, company_id := as.character(company_id)]
 
 # Parameters
-periods <- c(3, 7, 10, 15, 30)
-price_thresholds <- c(0.03, 0.05, 0.07, 0.10, 0.15)
+periods <- c(3, 7, 10, 15)
+price_thresholds <- c(0.03, 0.05, 0.07, 0.10)
 volume_thresholds <- c(0.10, 0.30, 0.50, 1.00)
-rolling_windows <- c(3, 7, 10, 15, 30)
-volume_spike_multiples <- c(1, 1.5, 2, 3)
-price_spike_multiples <- c(1, 1.5, 2, 3)
+rolling_windows <- c(3, 7, 10, 15)
+volume_spike_multiples <- c(1, 1.5, 3)
+price_spike_multiples <- c(1, 1.5, 3)
 
 setorder(prices_dt, company_id, date)
 
@@ -51,7 +51,7 @@ setorder(prices_dt, company_id, date)
 prices_dt[adj_close <= 0 | is.na(adj_close), adj_close := NA]
 
 # Batching setup
-batch_size <- 500
+batch_size <- 5
 unique_companies <- unique(prices_dt$company_id)
 n_batches <- ceiling(length(unique_companies) / batch_size)
 
