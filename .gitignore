@@ -81,4 +81,4 @@ config/
 # Ignore environment variable files
 .env
 .env.*
-env/ 
+env/ backups/*.sql
