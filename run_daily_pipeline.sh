@@ -74,7 +74,7 @@ run_command() {
 # Function to get database counts
 get_db_counts() {
     local companies_count=$(psql -U stockuser -d stockdb -t -c "SELECT COUNT(*) FROM companies;" | xargs)
-    local prices_count=$(psql -U stockuser -d stockdb -t -c "SELECT COUNT(*) FROM prices;" | xargs)
+    local prices_count=$(psql -U stockuser -d stockdb -t -c "SELECT COUNT(*) FROM prices_v2_compatible;" | xargs)
     local companies_powerbi_count=$(psql -U stockuser -d stockdb -t -c "SELECT COUNT(*) FROM companies_powerbi;" | xargs)
     echo "$companies_count $prices_count $companies_powerbi_count"
 }
@@ -120,6 +120,16 @@ main() {
     
 
 
+    # 0.1 Run 111_cleanup_script
+    #duration=$(run_command "Running 111_cleanup_script" \
+     #   "bash data_ingestion/onetime/111_cleanup_script.sh" "0.1")
+    #durations+=("$duration")
+    
+    # 0.2 Run 222.download_samco_bhavcopy.py
+    #duration=$(run_command "Running 222_download_samco_bhavcopy.py" \
+     #   "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/222_download_samco_bhavcopy.py" "0.2")
+    #durations+=("$duration")
+    
     # 1. Import companies from Screener CSV
     duration=$(run_command "Import companies from Screener CSV" \
         "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/1.1_import_screener_companies.py $csv_file" "1")
@@ -256,7 +266,9 @@ main() {
         "Rscript data_ingestion/Rscripts/11_save_to_database.R" "18")
     durations+=("$duration")
 
-    
+
+# 19. daily price and volume table
+    Rscript /Users/chanderbhushan/stockmkt/data_ingestion/Rscripts/5_create_prices_bhavcopy3.R --delete-date "2018-12-04"
     # Get final database counts
     read companies_after prices_after companies_powerbi_after <<< $(get_db_counts)
     log_message "Final database counts - Companies: $companies_after, Prices: $prices_after, Companies PowerBI: $companies_powerbi_after"
@@ -281,26 +293,26 @@ main() {
     
     # Summary of steps completed
     log_message "Summary of steps completed:"
-    log_message "✓ 00. Create daily bhavcopy (${durations[00]} min)"
-    log_message "✓ 01. Add company names to bhavcopy (${durations[01]} min)"
-    log_message "✓ 02. Create database-ready CSV (${durations[02]} min)"
-    log_message "✓ 03. Insert data into database (${durations[03]} min)"
-    log_message "✓ 1. Import companies from Screener CSV (${durations[1]} min)"
-    log_message "✓ 13. Fetch insider trades nse (${durations[13]} min)"
-    #log_message "✓ 2. Fetch historical prices (${durations[2]} min)"
-    #log_message "✓ 3. Fetch corporate actions (${durations[3]} min)"
-    log_message "✓ 4. Fetch indices data (${durations[4]} min)"
-    log_message "✓ 5. Data quality check (${durations[5]} min)"
-    log_message "✓ 6. Generate company insights (${durations[6]} min)"
-    log_message "✓ 7. Calculate price features (${durations[7]} min)"
-    log_message "✓ 8. Calculate corporate action flags (${durations[8]} min)"
-    log_message "✓ 9. Calculate price-volume probabilities (${durations[9]} min)"
-    log_message "✓ 10. Recombine batches and merge (${durations[10]} min)"
-    log_message "✓ 11. Calculate composite quality score (${durations[11]} min)"
-    log_message "✓ 12. Calculate indices features (${durations[12]} min)"
-    log_message "✓ 14. Calculate prices max min (${durations[14]} min)"
-    log_message "✓ 15. Update insider metrics (${durations[15]} min)"
-    log_message "✓ 16. Run momentum trading model (${durations[16]} min)"
+    #log_message "✓ 0.1 Remove files from log and output folders (${durations[0]} min)"
+    #log_message "✓ 0.2 download daily nse,bse bhavcopy, extract zip and delete, transfer old copies to hist folders (${durations[1]} min)"
+    log_message "✓ 1. Import companies from Screener CSV (${durations[2]} min)"
+    log_message "✓ 00. Create daily bhavcopy (${durations[3]} min)"
+    log_message "✓ 01. Add company names to bhavcopy (${durations[4]} min)"
+    log_message "✓ 02. Create database-ready CSV (${durations[5]} min)"
+    log_message "✓ 03. Insert data into database (${durations[6]} min)"
+    log_message "✓ 13. Fetch insider trades nse (${durations[7]} min)"
+    log_message "✓ 4. Fetch indices data (${durations[8]} min)"
+    log_message "✓ 5. Data quality check (${durations[9]} min)"
+    log_message "✓ 6. Generate company insights (${durations[10]} min)"
+    log_message "✓ 7. Calculate price features (${durations[11]} min)"
+    log_message "✓ 8. Calculate corporate action flags (${durations[12]} min)"
+    log_message "✓ 9. Calculate price-volume probabilities (${durations[13]} min)"
+    log_message "✓ 10. Recombine batches and merge (${durations[14]} min)"
+    log_message "✓ 11. Calculate composite quality score (${durations[15]} min)"
+    log_message "✓ 12. Calculate indices features (${durations[16]} min)"
+    log_message "✓ 14. Calculate prices max min (${durations[17]} min)"
+    log_message "✓ 15. Update insider metrics (${durations[18]} min)"
+    log_message "✓ 16. Run momentum trading model (${durations[19]} min)"
     log_message "✓ 17. Run trade tracker analysis (${durations[17]} min)"
     log_message "✓ 18. Save trade analysis to database (${durations[18]} min)"
     # Check for errors in log

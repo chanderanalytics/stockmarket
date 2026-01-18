@@ -1,0 +1,36 @@
+{
+  "moderator": {
+    "revenue_growth": {
+      "bullish_points": [
+        "Revenue growth of 10.03% over the last 10 years suggests stable business performance"
+      ],
+      "bearish_points": [],
+      "summary": "",
+      "confidence_score": 0.7
+    },
+    "profitability": {
+      "bullish_points": [
+        "Operating margin of 15.25% indicates efficient cost management and pricing power"
+      ],
+      "bearish_points": [],
+      "summary": "",
+      "confidence_score": 0.8
+    },
+    "capital_efficiency": {
+      "bullish_points": [
+        "Debt-to-equity ratio of 1.21 is reasonable, indicating manageable leverage"
+      ],
+      "bearish_points": [],
+      "summary": "",
+      "confidence_score": 0.6
+    },
+    "valuation_outlook": {
+      "bullish_points": [
+        "Price to earnings (P/E) ratio of 20.45 is relatively high but may be justified by growth prospects"
+      ],
+      "bearish_points": [],
+      "summary": "",
+      "confidence_score": 0.9
+    }
+  }
+}

@@ -209,7 +209,7 @@ load_and_prepare_data <- function(con, ref_date, limit_companies) {
    }
    
    # Load prices with date filtering
-   log_message("Loading prices from database...")
+   log_message("Loading prices from database (prices_v2_compatible view)...")
    log_message(sprintf("DEBUG (pre-company_ids_str): nrow(companies) = %d", nrow(companies)), "DEBUG")
    if (nrow(companies) > 0) {
      log_message(sprintf("DEBUG (pre-company_ids_str): names(companies) = %s", paste(names(companies), collapse = ", ")), "DEBUG")
@@ -231,15 +231,22 @@ load_and_prepare_data <- function(con, ref_date, limit_companies) {
      "('DUMMY')" # Use a dummy value to prevent SQL error for empty IN clause
    }
    
+   # Query to get all columns from prices_v2_compatible and map total_traded_quantity to volume
    query <- sprintf(
-    "SELECT * FROM prices WHERE date <= '%s' AND company_id IN %s ORDER BY company_id, date",
+    "SELECT 
+       p.*, 
+       p.total_traded_quantity AS volume 
+     FROM prices_v2_compatible p 
+     WHERE p.date <= '%s' 
+     AND p.company_id IN %s 
+     ORDER BY p.company_id, p.date",
     format(ref_date, "%Y-%m-%d"),
     company_ids_str
    )
    log_message(sprintf("Executing query for prices: %s", query))
    
    prices <- data.table::as.data.table(DBI::dbGetQuery(con, query))
-   log_message(sprintf("Fetched %d price records for %d companies up to %s", 
+   log_message(sprintf("Fetched %d price records from prices_v2_compatible for %d companies up to %s", 
                        nrow(prices), length(unique(prices$company_id)), format(ref_date, "%Y-%m-%d")))
    
   }, error = function(e) {
@@ -248,27 +255,6 @@ load_and_prepare_data <- function(con, ref_date, limit_companies) {
   })
  }
  
- # Fallback to CSV if DB load failed or no connection
- if (is.null(con) || !exists("companies") || !exists("prices") || nrow(companies) == 0 || nrow(prices) == 0) {
-  log_message("Falling back to CSV files", "WARN")
-  if (file.exists("companies.csv") && file.exists("prices.csv")) {
-   log_message("Loading companies.csv and prices.csv from working directory")
-   companies <- data.table::fread("companies.csv")
-   prices <- data.table::fread("prices.csv")
-   
-   # Apply limit_companies to CSV data if specified
-   if (!is.null(limit_companies)) {
-    unique_company_ids <- unique(companies$company_id)
-    if (length(unique_company_ids) > limit_companies) {
-     companies <- companies[company_id %in% unique_company_ids[1:limit_companies]]
-     prices <- prices[company_id %in% unique_company_ids[1:limit_companies]]
-     log_message(sprintf("Limiting CSV data to %d companies.", limit_companies))
-    }
-   }
-  } else {
-   stop("No DB connection and CSV fallback not found. Provide DB env vars or companies.csv & prices.csv.")
-  }
- }
  
  # Data Preparation and Merging
  log_message("Preparing and merging data...")
@@ -429,28 +415,49 @@ main_prepare_data <- function() {
   con <- NULL
   tryCatch({
     con <- get_db_con()
-    if (!is.null(con)) {
-      log_message("Successfully connected to the database")
+    if (is.null(con)) {
+      stop("Failed to establish database connection")
     }
+    log_message("Successfully connected to the database")
   }, error = function(e) {
-    log_message(sprintf("Database connection error: %s", e$message), "WARN")
+    log_message(sprintf("FATAL: Database connection error: %s", e$message), "ERROR")
+    stop(e)  # Re-throw to stop execution
   })
   
   # 3.2 Data Loading and Initial Preparation
-  data_list <- load_and_prepare_data(con, ref_date, params$limit_companies)
-  dt_base <- data_list$dt
-  companies_base <- data_list$companies
+  tryCatch({
+    data_list <- load_and_prepare_data(con, ref_date, params$limit_companies)
+    if (is.null(data_list$dt) || nrow(data_list$dt) == 0) {
+      stop("No data returned from load_and_prepare_data")
+    }
+    dt_base <- data_list$dt
+    companies_base <- data_list$companies
+  }, error = function(e) {
+    log_message(sprintf("FATAL: Data loading failed: %s", e$message), "ERROR")
+    stop(e)
+  })
   
   # 3.3 Calculate Indicators on the Base Dataset
   log_message("Calculating all technical indicators (this may take a while)...")
   dt_indicators <- timer({ calculate_indicators(dt_base) }, "Indicator Calculation")
   log_message(sprintf("Indicators calculated. Total columns: %d", ncol(dt_indicators)))
   
-  # 3.4 Save the intermediate dataset
-  save_file_path <- "data/mmtm_intermediate_data.RData"
-  log_message(sprintf("Saving intermediate dataset to %s", save_file_path))
-  saveRDS(list(dt = dt_indicators, companies = companies_base), file = save_file_path)
-  log_message("Intermediate dataset saved successfully.")
+  # 3.4 Save the intermediate datasets as CSV files
+  if (!dir.exists("output/mmtm")) {
+    dir.create("output/mmtm", recursive = TRUE)
+  }
+  
+  # Save main data to the location s3 expects
+  data_file <- sprintf("output/mmtm/prepared_data_%s.csv", format(ref_date, "%Y-%m-%d"))
+  log_message(sprintf("Saving intermediate data to %s", data_file))
+  data.table::fwrite(dt_indicators, file = data_file)
+  
+  # Save companies data
+  companies_file <- "data/mmtm_companies_data.csv"
+  log_message(sprintf("Saving companies data to %s", companies_file))
+  data.table::fwrite(companies_base, file = companies_file)
+  
+  log_message("Intermediate datasets saved successfully as CSV files.")
   
   # Clean up DB connection
   if (!is.null(con)) {

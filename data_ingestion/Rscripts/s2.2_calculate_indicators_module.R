@@ -62,6 +62,7 @@ calculate_indicators_enriched <- function(dt) {
   if (!"ma_21" %in% names(dt)) dt[, ma_21 := data.table::frollmean(close, 21, align = "right"), by = company_id]
   if (!"ma_50" %in% names(dt)) dt[, ma_50 := data.table::frollmean(close, 50, align = "right"), by = company_id]
   if (!"ma_63" %in% names(dt)) dt[, ma_63 := data.table::frollmean(close, 63, align = "right"), by = company_id]
+  if (!"ma_100" %in% names(dt)) dt[, ma_100 := data.table::frollmean(close, 100, align = "right"), by = company_id]
   if (!"ma_126" %in% names(dt)) dt[, ma_126 := data.table::frollmean(close, 126, align = "right"), by = company_id]
   if (!"ma_252" %in% names(dt)) dt[, ma_252 := data.table::frollmean(close, 252, align = "right"), by = company_id]
   log_message("  Moving averages calculated")
@@ -74,47 +75,40 @@ calculate_indicators_enriched <- function(dt) {
                                              abs(low - data.table::shift(close, 1)), na.rm = TRUE), by = company_id]
   if (!"atr" %in% names(dt)) {
     log_message("  Calculating ATR...", "DEBUG")
-    dt[, atr := {
-      log_message(sprintf("  DEBUG (ATR - company %s): Starting ATR calculation for .N = %d rows", .BY$company_id, .N), "DEBUG")
-      # Remove NAs only for the columns used in ATR calculation within this group
-      temp_dt <- na.omit(.SD, cols = c("high", "low", "close"))
-      log_message(sprintf("  DEBUG (ATR - company %s): After na.omit, temp_dt has %d rows and is of class %s", .BY$company_id, nrow(temp_dt), class(temp_dt)), "DEBUG")
-      
-      atr_values <- rep(NA_real_, .N) # Pre-allocate result vector with NAs
-      
-      if (nrow(temp_dt) > 0) {
-        # Explicitly convert to matrix for TTR functions
-        hlc_matrix <- as.matrix(temp_dt[, .(high, low, close)])
-        log_message(sprintf("  DEBUG (ATR - company %s): HLC matrix dimensions: %s, class: %s", .BY$company_id, paste(dim(hlc_matrix), collapse = "x"), class(hlc_matrix)), "DEBUG")
+    
+    # Define required columns
+    req_cols <- c("high", "low", "close")
+    
+    # Check if all required columns exist in the data.table
+    if (!all(req_cols %in% names(dt))) {
+      missing_cols <- setdiff(req_cols, names(dt))
+      log_message(sprintf("  ERROR: Missing required columns for ATR: %s", 
+                         paste(missing_cols, collapse=", ")), "ERROR")
+      dt[, atr := NA_real_]
+    } else {
+      # Calculate ATR directly without tryCatch to avoid scoping issues
+      dt[, atr := {
+        # Calculate True Range
+        tr <- pmax(high - low, 
+                  abs(high - data.table::shift(close, 1)), 
+                  abs(low - data.table::shift(close, 1)), 
+                  na.rm = TRUE)
         
-        if (nrow(hlc_matrix) >= 14) { # ATR requires at least 'n' (14) observations
-          calculated_atr <- TTR::ATR(HLC = hlc_matrix, n = 14)[, "atr"]
-          
-          # Map calculated_atr back to the original .N length
-          if (length(calculated_atr) > 0) {
-            # Find the original indices that correspond to the valid data in temp_dt
-            original_valid_indices <- which(!is.na(high) & !is.na(low) & !is.na(close))
-            
-            # Ensure we don't try to assign more values than available slots
-            start_idx_in_original <- original_valid_indices[length(original_valid_indices) - length(calculated_atr) + 1]
-            end_idx_in_original <- tail(original_valid_indices, 1)
-            
-            if (start_idx_in_original > 0 && end_idx_in_original >= start_idx_in_original) {
-              atr_values[start_idx_in_original:end_idx_in_original] <- calculated_atr
-            }
-          }
-        } else {
-          log_message(sprintf("  DEBUG (ATR - company %s): Insufficient data (%d rows) for ATR calculation, needs at least 14.", .BY$company_id, nrow(hlc_matrix)), "DEBUG")
-        }
-      } else {
-        log_message(sprintf("  DEBUG (ATR - company %s): temp_dt is empty after na.omit.", .BY$company_id), "DEBUG")
-      }
-      atr_values # Return the pre-allocated vector with NAs and calculated values
-    }, by = company_id]
-    log_message("  ATR calculated", "DEBUG")
+        # Calculate ATR using a simple moving average of TR
+        atr <- data.table::frollmean(tr, n = 14, align = "right", na.rm = TRUE)
+        
+        # Return the ATR values
+        atr
+      }, by = company_id]
+      log_message("  ATR calculation completed")
+    }
   }
   # Old ATR calculation: if (!"atr" %in% names(dt)) dt[, atr := TTR::ATR(HLC = dt[, .(high, low, close)], n = 14)$atr, by = company_id] # Use TTR's ATR
   # log_message("  ATR calculated")
+
+  if (!"atr_pct" %in% names(dt)) {
+    dt[, atr_pct := atr / pmax(close, 1e-9) * 100]
+  }
 
   if (!"vol_5d" %in% names(dt)) {
     dt[, vol_5d := {
@@ -125,12 +119,27 @@ calculate_indicators_enriched <- function(dt) {
       } else { NA_real_ }
     }, by = company_id]
   }
+  # 21-day price volatility (annualized) to match legacy pipeline expectations
   if (!"vol_21d" %in% names(dt)) {
     dt[, vol_21d := {
       if (.N >= 21) {
         mean21 <- frollmean(return_1d, 21, align = "right", na.rm = TRUE)
         mean_sq21 <- frollmean(return_1d^2, 21, align = "right", na.rm = TRUE)
         sqrt(pmax(mean_sq21 - mean21^2, 0, na.rm = TRUE)) * sqrt(252)
+      } else { NA_real_ }
+    }, by = company_id]
+  }
+  # 21-day volume coefficient-of-variation (kept separately)
+  if (!"vol_cv_21d" %in% names(dt)) {
+    dt[, vol_cv_21d := {
+      if (.N >= 21) {
+        vol_mean <- frollmean(volume, 21, align = "right", na.rm = TRUE)
+        vol_sq <- frollmean(volume^2, 21, align = "right", na.rm = TRUE)
+        vol_var <- vol_sq - vol_mean^2
+        vol_sd <- sqrt(pmax(vol_var, 0))
+        result <- vol_sd / (vol_mean + 1e-10)
+        result[is.infinite(result) | is.nan(result)] <- NA_real_
+        result
       } else { NA_real_ }
     }, by = company_id]
   }
@@ -162,11 +171,21 @@ calculate_indicators_enriched <- function(dt) {
   log_message("  Pct from 21d high calculated")
 
   # 52-week context (from previous module version)
-  if (!"high_252d" %in% names(dt)) dt[, high_252d := data.table::frollapply(high, 252, max, align = "right", fill = NA), by = company_id]
-  if (!"low_252d" %in% names(dt)) dt[, low_252d := data.table::frollapply(low, 252, min, align = "right", fill = NA), by = company_id]
-  if (!"near_52wk_high" %in% names(dt)) dt[, near_52wk_high := close > 0.95 * high_252d]
-  if (!"drawdown_52wk" %in% names(dt)) dt[, drawdown_52wk := (close / pmax(high_252d, 1e-9) - 1) * 100]
-  log_message("  52-week context calculated")
+  if (!"high_252d" %in% names(dt)) dt[, high_252d := data.table::frollapply(high, 252, max, align = "right", na.rm = TRUE), by = company_id]
+  if (!"low_252d" %in% names(dt)) dt[, low_252d := data.table::frollapply(low, 252, min, align = "right", na.rm = TRUE), by = company_id]
+  if (!"near_52wk_high" %in% names(dt)) dt[, near_52wk_high := close >= 0.95 * high_252d]
+  if (!"drawdown_52wk" %in% names(dt)) dt[, drawdown_52wk := (close - high_252d) / pmax(high_252d, 1e-9) * 100]
+  if (!"recovery_factor" %in% names(dt)) dt[, recovery_factor := (close / pmax(low_252d, 1e-9) - 1) * 100]
+  
+  # Add missing high/low indicators for rules (avoid duplication)
+  if (!"high_5d" %in% names(dt)) dt[, high_5d := data.table::frollapply(high, 5, max, align = "right", na.rm = TRUE), by = company_id]
+  if (!"low_5d" %in% names(dt)) dt[, low_5d := data.table::frollapply(low, 5, min, align = "right", na.rm = TRUE), by = company_id]
+  
+  # Add price vs MA indicators needed by rules
+  if (!"price_vs_ma21" %in% names(dt)) dt[, price_vs_ma21 := (close / pmax(ma_21, 1e-9) - 1) * 100]
+  if (!"price_vs_ma50" %in% names(dt)) dt[, price_vs_ma50 := (close / pmax(ma_50, 1e-9) - 1) * 100]
+  
+  log_message("  52-week context and price levels calculated")
 
   # Range metrics (from original mmtm.R)
   if (!"range_5d" %in% names(dt)) dt[, range_5d := high_5d - low_5d]
@@ -219,33 +238,18 @@ calculate_indicators_enriched <- function(dt) {
   # Drawdown from recent high (63-day lookback) (from original mmtm.R)
   if (!"drawdown" %in% names(dt)) {
     dt[, drawdown := {
-      result <- rep(NA_real_, .N)
-      if (.N >= 5) {
-        valid_close <- !is.na(close) & close > 0
-        valid_prices <- close[valid_close]
-        valid_indices <- which(valid_close)
-        window_size <- min(63, length(valid_prices))
-        if (length(valid_prices) >= window_size) {
-          dd_values <- sapply(1:(length(valid_prices) - window_size + 1), function(i) {
-            window_prices <- valid_prices[i:(i + window_size - 1)]
-            if (any(is.na(window_prices)) || length(window_prices) < 2) return(NA_real_)
-            returns <- diff(window_prices) / window_prices[-length(window_prices)]
-            if (any(is.na(returns)) || length(returns) == 0) return(NA_real_)
-            cum_returns <- cumprod(1 + returns)
-            max_dd <- min(cum_returns / cummax(cum_returns) - 1, na.rm = TRUE)
-            if (is.finite(max_dd)) max_dd else NA_real_
-          })
-          if (length(dd_values) > 0) {
-            start_idx <- valid_indices[1] + window_size - 1
-            end_idx <- valid_indices[length(valid_indices)]
-            result[start_idx:end_idx] <- dd_values[1:min(length(dd_values), length(start_idx:end_idx))]
-          }
-        }
-      }
-      result
+      roll_max <- data.table::frollapply(close, 63, max, align = "right", na.rm = TRUE)
+      out <- rep(NA_real_, .N)
+      ok <- !is.na(close) & close > 0 & !is.na(roll_max) & roll_max > 0
+      out[ok] <- close[ok] / roll_max[ok] - 1
+      out
     }, by = company_id]
   }
   log_message("  63-day drawdown calculated")
+
+  if (!"LOW_DRAWDOWN" %in% names(dt)) {
+    dt[, LOW_DRAWDOWN := as.integer(!is.na(drawdown) & drawdown > -0.10)]
+  }
 
   # ----------------------------------------------------------------------------
   # 4. Volume Metrics (from original mmtm.R and previous module version)
@@ -258,6 +262,7 @@ calculate_indicators_enriched <- function(dt) {
   if (!"vol_8d_avg" %in% names(dt)) dt[, vol_8d_avg := data.table::frollmean(volume, 8, align = "right"), by = company_id] # Added from old mmtm
   if (!"vol_21d_avg" %in% names(dt)) dt[, vol_21d_avg := data.table::frollmean(volume, 21, align = "right"), by = company_id] # Added from old mmtm
   if (!"vol_63d_avg" %in% names(dt)) dt[, vol_63d_avg := data.table::frollmean(volume, 63, align = "right"), by = company_id] # Added from old mmtm
+  if (!"dollar_vol_20d" %in% names(dt)) dt[, dollar_vol_20d := vol_ma_20 * close]
   log_message("  Volume MAs calculated")
 
   if (!"volume_ratio" %in% names(dt)) dt[, volume_ratio := frollmean(volume, 8, align = "right") / (frollmean(volume, 21, align = "right") + 1e-9), by = company_id] # Added from old mmtm
@@ -265,7 +270,14 @@ calculate_indicators_enriched <- function(dt) {
 
   # Volume-based flags
   if (!"volume_surge" %in% names(dt)) dt[, volume_surge := volume > 2 * pmax(vol_ma_20, 1e-9)]
+  if (!"volume_spike" %in% names(dt)) dt[, volume_spike := volume > 2.5 * pmax(vol_ma_20, 1e-9)]
   if (!"volume_signal_20" %in% names(dt)) dt[, volume_signal_20 := volume > pmax(vol_ma_20, 1e-9) & volume > data.table::shift(volume, 1), by = company_id]
+  if (!"volume_accumulation" %in% names(dt)) {
+    dt[, volume_accumulation := (close > open) & (volume > 1.2 * pmax(vol_ma_20, 1e-9))]
+  }
+  if (!"volume_trend_strength" %in% names(dt)) {
+    dt[, volume_trend_strength := (vol_ma_20 / pmax(data.table::shift(vol_ma_20, 20), 1e-9) - 1) * 100, by = company_id]
+  }
   log_message("  Volume surge/signal calculated")
 
   # VWAP 20d
@@ -336,6 +348,13 @@ calculate_indicators_enriched <- function(dt) {
       } else { NA_real_ }
     }, by = company_id]
   }
+  # Add buying_pressure indicator needed by rules
+  if (!"buying_pressure" %in% names(dt)) {
+    dt[, buying_pressure := {
+      # Simple buying pressure: positive volume when up, negative when down
+      ifelse(close > open, volume, -volume)
+    }]
+  }
   if (!"absorption" %in% names(dt)) {
     dt[, absorption := (abs(close - open) / (pmax(high - low, 1e-9)) < 0.3) & (volume > 1.5 * vol_21d_avg)]
   }
@@ -359,236 +378,357 @@ calculate_indicators_enriched <- function(dt) {
 
   # Block trades detection (from original mmtm.R)
   if (!"block_trade" %in% names(dt)) {
-    dt[, block_trade := volume > 5 * frollmean(volume, 63, align = "right"), by = company_id]
+    dt[, block_trade := {
+      adv_63 <- data.table::frollmean(volume, 63, align = "right", na.rm = TRUE)
+      threshold <- 5 * pmax(data.table::shift(adv_63, 1), 1e-9)
+      !is.na(volume) & volume > threshold
+    }, by = company_id]
   }
   log_message("  Block trades calculated")
 
 
-  # Institutional support calculation
-  if (!"institutional_support" %in% names(dt)) {
-    log_message("Calculating institutional support levels...")
-    dt[, vol_price := round(close * 2) / 2] # Pre-compute rounded prices
-
-    dt[, institutional_support := {
-      res <- logical(.N) # Pre-allocate result vector
-
-      for (i in 1:.N) {
-        current_date <- date[i]
-        current_close <- close[i]
-
-        # Define window for the current date (63 days lookback)
-        window_start_date <- current_date - 63
-
-        # Get data for the window using .SD to avoid copying large dt
-        window_data <- .SD[date >= window_start_date & date <= current_date]
-
-        if (nrow(window_data) >= 5) { # Minimum 5 days for analysis
-          # Aggregate volume by rounded price within the window
-          vol_dist <- window_data[, .(total_v = sum(volume, na.rm = TRUE)), by = vol_price]
-
-          if (nrow(vol_dist) > 0) {
-            # Get top 3 price levels by volume
-            data.table::setorderv(vol_dist, "total_v", order = -1L)
-            top_prices <- vol_dist[1:min(3, nrow(vol_dist)), vol_price]
-
-            # Check if current close is near any of the top prices
-            res[i] <- any(abs(current_close - top_prices) / current_close < 0.01, na.rm = TRUE)
-          } else {
-            res[i] <- FALSE
-          }
-        } else {
-          res[i] <- FALSE
-        }
-      }
-      res
+  # Extreme Persistence Score (EPS) - % time stock spends ≥10% away from MA50
+  if (!"extreme_persistence_score" %in% names(dt)) {
+    log_message("Calculating Extreme Persistence Score (EPS)...")
+    
+    dt[, extreme_persistence_score := {
+      # Calculate distance from MA50
+      distance_pct <- abs(close - ma_50) / pmax(ma_50, 1e-9)
+      
+      # Flag days where distance ≥ 10%
+      extreme_flag <- ifelse(distance_pct >= 0.10, 1, 0)
+      
+      # Rolling sum of extreme days over 250 trading days
+      extreme_days <- data.table::frollsum(extreme_flag, 250, align = "right", na.rm = TRUE)
+      
+      # Calculate persistence score (0-1 range)
+      persistence_score <- extreme_days / pmin(250, data.table::rowid(company_id))
+      
+      persistence_score
     }, by = company_id]
-    dt[, vol_price := NULL] # Clean up temp column
+    
+    # Directional persistence - separate for above and below MA
+    dt[, eps_positive := {
+      distance_positive <- (close - ma_50) / pmax(ma_50, 1e-9)
+      extreme_positive_flag <- ifelse(distance_positive >= 0.10, 1, 0)
+      extreme_positive_days <- data.table::frollsum(extreme_positive_flag, 250, align = "right", na.rm = TRUE)
+      extreme_positive_days / pmin(250, data.table::rowid(company_id))
+    }, by = company_id]
+    
+    dt[, eps_negative := {
+      distance_negative <- (ma_50 - close) / pmax(ma_50, 1e-9)
+      extreme_negative_flag <- ifelse(distance_negative >= 0.10, 1, 0)
+      extreme_negative_days <- data.table::frollsum(extreme_negative_flag, 250, align = "right", na.rm = TRUE)
+      extreme_negative_days / pmin(250, data.table::rowid(company_id))
+    }, by = company_id]
+    
+    log_message("Extreme Persistence Score calculated")
   }
-  log_message("  Institutional support calculated")
+  
+  # Volume Efficiency Ratio (VER) - measures accumulation vs distribution
+  if (!"volume_efficiency_ratio" %in% names(dt)) {
+    log_message("Calculating Volume Efficiency Ratio (VER)...")
+    
+    dt[, volume_efficiency_ratio := {
+      # Absolute daily price change percentage
+      price_change_pct <- abs(return_1d)
+      
+      # Volume ratio (current / 20-day average)
+      vol_ratio <- volume / pmax(vol_ma_20, 1e-9)
+      
+      # VER = price_change / volume_ratio
+      # Lower VER = high volume, low movement (accumulation)
+      ver <- price_change_pct / pmax(vol_ratio, 1e-9)
+      
+      ver
+    }, by = company_id]
+    
+    log_message("Volume Efficiency Ratio calculated")
+  }
+  
+  # Accumulation Score - % days with accumulation characteristics
+  if (!"accumulation_score" %in% names(dt)) {
+    log_message("Calculating Accumulation Score...")
+    
+    dt[, accumulation_score := {
+      # Daily accumulation flag
+      accum_flag <- (
+        !is.na(volume) & !is.na(return_1d) & !is.na(ma_21) & !is.na(vwap_20d) &
+        volume >= 1.2 * pmax(vol_ma_20, 1e-9) &  # Above average volume
+        abs(return_1d) <= 0.015 &  # Small price movement (≤1.5%)
+        close >= pmax(ma_21, vwap_20d)  # Close above key references
+      )
+      
+      # Rolling sum over 20 days
+      accum_days <- data.table::frollsum(accum_flag, 20, align = "right", na.rm = TRUE)
+      
+      # Accumulation score (0-1 range)
+      accum_score <- accum_days / pmin(20, data.table::rowid(company_id))
+      
+      accum_score
+    }, by = company_id]
+    
+    log_message("Accumulation Score calculated")
+  }
+
+  # Pre-Move Probability Score (PMPS) - Measures pressure buildup for big moves
+  if (!"pmps_score" %in% names(dt)) {
+    log_message("Calculating Pre-Move Probability Score (PMPS)...")
+    
+    dt[, pmps_score := {
+      # Block 1: EPS Regime Score (0-20)
+      eps_score <- {
+        eps_val <- extreme_persistence_score * 100  # Convert to 0-100 scale
+        ifelse(eps_val < 5, 0,
+        ifelse(eps_val < 8, 5,
+        ifelse(eps_val < 12, 10,
+        ifelse(eps_val < 18, 15, 20))))
+      }
+      
+      # Block 2: Accumulation Persistence Score (0-20)
+      accum_score <- {
+        accum_val <- accumulation_score * 100  # Convert to 0-100 scale
+        ifelse(accum_val < 15, 0,
+        ifelse(accum_val < 25, 5,
+        ifelse(accum_val < 35, 10,
+        ifelse(accum_val < 50, 15, 20))))
+      }
+      
+      # Block 3: Distribution Absence Score (0-20)
+      # Distribution = 1 - accumulation_score (inverse logic)
+      dist_score <- {
+        dist_val <- (1 - accumulation_score) * 100  # Convert to 0-100 scale
+        ifelse(dist_val > 40, 0,
+        ifelse(dist_val > 30, 5,
+        ifelse(dist_val > 20, 10,
+        ifelse(dist_val > 10, 15, 20))))
+      }
+      
+      # Block 4: Price Compression Score (0-20)
+      compression_score <- {
+        # ATR compression: ATR(14) / ATR(50)
+        atr_14 <- data.table::frollapply(abs(return_1d), 14, function(x) mean(x, na.rm = TRUE))
+        atr_50 <- data.table::frollapply(abs(return_1d), 50, function(x) mean(x, na.rm = TRUE))
+        atr_ratio <- atr_14 / pmax(atr_50, 1e-9)
+        
+        atr_comp <- ifelse(atr_ratio > 1.0, 0,
+                     ifelse(atr_ratio > 0.8, 5,
+                     ifelse(atr_ratio > 0.6, 10,
+                     ifelse(atr_ratio > 0.4, 15, 20))))
+        
+        # Range tightness: Last 5D range / 21D range
+        range_5 <- high_5d - low_5d
+        range_21 <- high_21d - low_21d
+        range_ratio <- range_5 / pmax(range_21, 1e-9)
+        
+        range_comp <- ifelse(range_ratio < 0.1, 20,
+                        ifelse(range_ratio < 0.2, 15,
+                        ifelse(range_ratio < 0.3, 10,
+                        ifelse(range_ratio < 0.4, 5, 0))))
+        
+        # Average of both methods
+        (atr_comp + range_comp) / 2
+      }
+      
+      # Block 5: Location/Structure Score (0-20)
+      structure_score <- {
+        ifelse(is.na(ma_50) | is.na(ma_21), 0,
+        ifelse(close < ma_50, 0,  # Below MA50
+        ifelse(close < ma_21, 5,  # Between MA50 & MA21
+        ifelse(is.na(high_5d) | close < high_5d, 10,  # Below 5D high
+        ifelse(compression_score > 15, 20, 15)))))  # At high + compression
+      }
+      
+      # Final PMPS calculation (0-100 scale)
+      pmps <- eps_score + accum_score + dist_score + compression_score + structure_score
+      
+      # Normalize to 0-100 range (max possible is 100)
+      pmin(pmps, 100)
+    }, by = company_id]
+    
+    log_message("Pre-Move Probability Score (PMPS) calculated")
+  }
+
+  # Whale behavior mode indicator - captures accumulation/pausing/distribution
+  if (!"whale_behavior_mode" %in% names(dt)) {
+    log_message("Calculating whale behavior mode...")
+    
+    dt[, whale_behavior_mode := {
+      # Mode 1: Still Buying (Green)
+      # High volume + price holds up + positive flow
+      still_buying <- (
+        !is.na(volume) & volume > 1.5 * pmax(vol_ma_20, 1e-9) &
+        !is.na(close) & !is.na(ma_21) & close > ma_21 &
+        !is.na(volume_delta_ma) & volume_delta_ma > 0 &
+        !is.na(return_1d) & return_1d > -0.02  # Small pullbacks only
+      )
+      
+      # Mode 3: Distributing (Red)  
+      # High volume + price fails + negative flow
+      distributing <- (
+        !is.na(volume) & volume > 1.5 * pmax(vol_ma_20, 1e-9) &
+        !is.na(close) & !is.na(ma_21) & close < ma_21 &
+        !is.na(volume_delta_ma) & volume_delta_ma < 0 &
+        !is.na(return_1d) & return_1d < -0.03  # Significant drops
+      )
+      
+      # Mode 2: Pausing (Yellow) - default case
+      fifelse(still_buying, "BUYING",
+      fifelse(distributing, "DISTRIBUTING", "PAUSING"))
+    }, by = company_id]
+    
+    # Enhanced institutional support - only true during BUYING mode
+    dt[, institutional_support := {
+      !is.na(whale_behavior_mode) & whale_behavior_mode == "BUYING"
+    }]
+    
+    log_message("Whale behavior mode and enhanced institutional support calculated")
+  }
 
   # ----------------------------------------------------------------------------
   # 5. Oscillators (from previous module version)
   # ----------------------------------------------------------------------------
 
-  # RSI
+  # RSI - Proper implementation within data.table
   if (!"rsi" %in% names(dt)) {
     log_message("  Calculating RSI...", "DEBUG")
+    
     dt[, rsi := {
-      temp_dt <- na.omit(.SD, cols = "close")
+      # Calculate price changes
+      delta <- c(NA, diff(close))
       
-      rsi_values <- rep(NA_real_, .N) # Pre-allocate result vector with NAs
+      # Separate gains and losses
+      gain <- ifelse(delta > 0, delta, 0)
+      loss <- ifelse(delta < 0, -delta, 0)
       
-      if (nrow(temp_dt) > 0) {
-        # Explicitly convert to matrix for TTR functions
-        close_matrix <- as.matrix(temp_dt$close)
-        
-        if (nrow(close_matrix) >= 14) { # RSI requires at least 'n' (14) observations
-          calculated_rsi <- as.numeric(TTR::RSI(price = as.numeric(temp_dt$close), n = 14))
-          
-          # Map calculated_rsi back to the original .N length
-          if (length(calculated_rsi) > 0) {
-            original_valid_indices <- which(!is.na(close))
-            start_fill_idx <- original_valid_indices[length(original_valid_indices) - length(calculated_rsi) + 1]
-            end_fill_idx <- tail(original_valid_indices, 1)
-            
-            if (start_fill_idx > 0 && end_fill_idx >= start_fill_idx) {
-              rsi_values[start_fill_idx:end_fill_idx] <- calculated_rsi
-            }
-          }
-        }
-      }
-      rsi_values # Return the pre-allocated vector with NAs and calculated values
+      # Calculate average gain and loss using wilder's smoothing
+      avg_gain <- frollmean(gain, 14, align = "right", na.rm = TRUE)
+      avg_loss <- frollmean(loss, 14, align = "right", na.rm = TRUE)
+      
+      # Calculate RS and RSI
+      rs <- avg_gain / (avg_loss + 1e-10)  # Add small value to avoid division by zero
+      rsi <- 100 - (100 / (1 + rs))
+      
+      # Handle edge cases
+      rsi[is.infinite(rsi) | is.nan(rsi)] <- NA_real_
+      rsi
     }, by = company_id]
-    log_message("  RSI calculated", "DEBUG")
+    
+    log_message("  RSI calculation completed")
   }
-  # Old RSI calculation: if (!"rsi" %in% names(dt)) dt[, rsi := TTR::RSI(close, n = 14), by = company_id]
-  # log_message("  RSI calculated")
 
-  # Robust ADX calculation with comprehensive error handling
+  if (!"rsi_overbought" %in% names(dt)) dt[, rsi_overbought := rsi > 70]
+  if (!"rsi_oversold" %in% names(dt)) dt[, rsi_oversold := rsi < 30]
+
+  # ADX - Simplified but functional implementation
   if (!"adx" %in% names(dt)) {
-    log_message("  Calculating ADX with comprehensive error handling...", "DEBUG")
+    log_message("  Calculating ADX...", "DEBUG")
     
-    # Custom ADX implementation that's more robust than TTR::ADX
-    safe_adx <- function(high, low, close, n = 14) {
-      tryCatch({
-        # Ensure we have enough data and valid inputs
-        if (length(high) < n * 2 || length(low) != length(high) || length(close) != length(high)) {
-          return(rep(NA_real_, length(high)))
-        }
-        
-        # Ensure no NAs in the middle of the series
-        valid_idx <- !is.na(high) & !is.na(low) & !is.na(close)
-        if (sum(valid_idx) < n * 2) {
-          return(rep(NA_real_, length(high)))
-        }
-        
-        # Use only valid data points
-        h <- high[valid_idx]
-        l <- low[valid_idx]
-        c <- close[valid_idx]
-        
-        # Calculate True Range (TR)
-        h_minus_l <- h - l
-        h_minus_pc <- c(NA, abs(h[-1] - c[-length(c)]))
-        l_minus_pc <- c(NA, abs(l[-1] - c[-length(c)]))
-        tr <- pmax(h_minus_l, h_minus_pc, l_minus_pc, na.rm = TRUE)
-        
-        # Calculate Directional Movement (+DM and -DM)
-        up_move <- c(NA, h[-1] - h[-length(h)])
-        down_move <- c(NA, l[-length(l)] - l[-1])
-        
-        plus_dm <- ifelse(up_move > pmax(down_move, 0, na.rm = TRUE), up_move, 0)
-        minus_dm <- ifelse(down_move > pmax(up_move, 0, na.rm = TRUE), down_move, 0)
-        
-        # Initialize smoothed values
-        tr_smooth <- rep(NA_real_, length(h))
-        plus_dm_smooth <- rep(0, length(h))
-        minus_dm_smooth <- rep(0, length(h))
-        
-        # First value is sum of first n TRs
-        tr_smooth[n] <- sum(tr[1:n], na.rm = TRUE)
-        plus_dm_smooth[n] <- sum(plus_dm[1:n], na.rm = TRUE)
-        minus_dm_smooth[n] <- sum(minus_dm[1:n], na.rm = TRUE)
-        
-        # Calculate subsequent values using Wilder's smoothing
-        for (i in (n+1):length(h)) {
-          tr_smooth[i] <- (tr_smooth[i-1] * (n-1) + tr[i]) / n
-          plus_dm_smooth[i] <- (plus_dm_smooth[i-1] * (n-1) + plus_dm[i]) / n
-          minus_dm_smooth[i] <- (minus_dm_smooth[i-1] * (n-1) + minus_dm[i]) / n
-        }
-        
-        # Calculate +DI and -DI (with protection against division by zero)
-        plus_di <- 100 * plus_dm_smooth / (tr_smooth + 1e-10)
-        minus_di <- 100 * minus_dm_smooth / (tr_smooth + 1e-10)
-        
-        # Calculate DX (Directional Movement Index)
-        dx <- 100 * abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
-        
-        # Calculate ADX (smoothed DX)
-        adx <- rep(NA_real_, length(h))
-        adx[n*2-1] <- mean(dx[n:(n*2-1)], na.rm = TRUE)
-        
-        for (i in (n*2):length(h)) {
-          adx[i] <- (adx[i-1] * (n-1) + dx[i]) / n
-        }
-        
-        # Map back to original indices
-        result <- rep(NA_real_, length(high))
-        result[valid_idx] <- c(rep(NA, n*2-2), adx[-(1:(n*2-2))])
-        return(result)
-        
-      }, error = function(e) {
-        log_message(sprintf("Error in safe_adx: %s", e$message), "ERROR")
-        return(rep(NA_real_, length(high)))
-      })
-    }
-    
-    # Calculate ADX for each company
     dt[, adx := {
-      # Only calculate if we have enough data
-      if (.N >= 28) {
-        safe_adx(high, low, close, n = 14)
-      } else {
-        rep(NA_real_, .N)
-      }
+      if (.N >= 14) {
+        # Calculate True Range
+        tr <- pmax(high - low, abs(high - shift(close)), abs(low - shift(close)), na.rm = TRUE)
+        
+        # Calculate +DM and -DM
+        up_move <- high - shift(high)
+        down_move <- shift(low) - low
+        
+        plus_dm <- ifelse((up_move > down_move) & (up_move > 0), up_move, 0)
+        minus_dm <- ifelse((down_move > up_move) & (down_move > 0), down_move, 0)
+        
+        # Smooth the values
+        atr <- frollmean(tr, 14, align = "right", na.rm = TRUE)
+        plus_di <- 100 * frollmean(plus_dm, 14, align = "right", na.rm = TRUE) / (atr + 1e-10)
+        minus_di <- 100 * frollmean(minus_dm, 14, align = "right", na.rm = TRUE) / (atr + 1e-10)
+        
+        # Calculate ADX
+        dx <- 100 * abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
+        adx <- frollmean(dx, 14, align = "right", na.rm = TRUE)
+        
+        # Handle edge cases
+        adx[is.infinite(adx) | is.nan(adx)] <- NA_real_
+        adx
+      } else { NA_real_ }
     }, by = company_id]
     
-    log_message("  ADX calculation completed", "DEBUG")
+    log_message("  ADX calculation completed")
   }
-  # Old ADX calculation: if (!"adx" %in% names(dt)) {
-  #   dt[, adx := {
-  #     result <- rep(NA_real_, .N)
-  #     if (.N >= 28) {
-  #       tryCatch({
-  #         adx_result <- TTR::ADX(cbind(high, low, close), n = 14)
-  #         if (!is.null(adx_result) && nrow(adx_result) > 0) {
-  #           adx_col <- grep("^ADX", colnames(adx_result), value = TRUE, ignore.case = TRUE)[1]
-  #           if (!is.na(adx_col) && adx_col %in% colnames(adx_result)) {
-  #             start_idx <- .N - nrow(adx_result) + 1
-  #             if (start_idx > 0) { result[start_idx:.N] <- adx_result[[adx_col]] }
-  #           }
-  #         }
-  #       }, error = function(e) { NULL })
-  #     }
-  #     result
-  #   }, by = company_id]
-  # }
-  # log_message("  ADX calculated")
-
-  # MACD signals
+  # MACD - Proper implementation
   if (!"macd_line" %in% names(dt)) {
     log_message("  Calculating MACD...", "DEBUG")
-    macd_calc <- function(x) {
-      # Ensure no NAs in input for MACD calculation
-      x_omit_na <- na.omit(x)
-      log_message(sprintf("  DEBUG (MACD - company %s): x_omit_na length: %d", .BY$company_id, length(x_omit_na)), "DEBUG")
-      if (length(x_omit_na) < 26) { # MACD requires at least 26 observations (nSlow)
-        log_message(sprintf("  DEBUG (MACD - company %s): Insufficient data (%d rows) for MACD calculation, needs at least 26.", .BY$company_id, length(x_omit_na)), "DEBUG")
-        return(list(line=rep(NA_real_, length(x)), sig=rep(NA_real_, length(x)), hist=rep(NA_real_, length(x))))
-      }
-      m <- TTR::MACD(as.matrix(x_omit_na), nFast = 12, nSlow = 26, nSig = 9)
-      if (is.null(m) || ncol(m) < 2 || nrow(m) == 0) {
-        log_message(sprintf("  DEBUG (MACD - company %s): TTR::MACD returned invalid output (null, <2 cols, or 0 rows).", .BY$company_id), "DEBUG")
-        return(list(line=rep(NA_real_, length(x)), sig=rep(NA_real_, length(x)), hist=rep(NA_real_, length(x))))
-      }
-      
-      # Pad with NAs at the beginning to match original length
-      num_na_front <- length(x) - nrow(m)
-      log_message(sprintf("  DEBUG (MACD - company %s): MACD output dimensions: %s, num_na_front: %d", .BY$company_id, paste(dim(m), collapse = "x"), num_na_front), "DEBUG")
-      list(line = c(rep(NA_real_, num_na_front), m[,1]),
-           sig = c(rep(NA_real_, num_na_front), m[,2]),
-           hist = c(rep(NA_real_, num_na_front), m[,1] - m[,2]))
-    }
-    macd_dt <- dt[, macd_calc(close), by = company_id]
-    dt[, macd_line := macd_dt$line]
-    dt[, macd_signal := macd_dt$sig]
-    dt[, macd_hist := macd_dt$hist]
-    dt[, macd_bullish_cross := (macd_line > macd_signal) & (data.table::shift(macd_line, 1) <= data.table::shift(macd_signal, 1)), by = company_id]
-    dt[, macd_bearish_cross := (macd_line < macd_signal) & (data.table::shift(macd_line, 1) >= data.table::shift(macd_signal, 1)), by = company_id]
-    dt[, macd_hist_trend := data.table::frollmean(macd_hist, 3, align = "right") > data.table::shift(data.table::frollmean(macd_hist, 3, align = "right"), 1), by = company_id]
-    log_message("  MACD indicators calculated", "DEBUG")
+    
+    # First calculate MACD line
+    dt[, macd_line := {
+      if (.N >= 26) {
+        ema_12 <- frollapply(close, 12, function(x) {
+          if (length(x) < 2) return(NA_real_)
+          # Simple EMA calculation
+          alpha <- 2 / (12 + 1)
+          result <- numeric(length(x))
+          result[1] <- mean(x, na.rm = TRUE)
+          for (i in 2:length(x)) {
+            result[i] <- alpha * x[i] + (1 - alpha) * result[i-1]
+          }
+          result[length(x)]
+        }, align = "right")
+        
+        ema_26 <- frollapply(close, 26, function(x) {
+          if (length(x) < 2) return(NA_real_)
+          alpha <- 2 / (26 + 1)
+          result <- numeric(length(x))
+          result[1] <- mean(x, na.rm = TRUE)
+          for (i in 2:length(x)) {
+            result[i] <- alpha * x[i] + (1 - alpha) * result[i-1]
+          }
+          result[length(x)]
+        }, align = "right")
+        
+        ema_12 - ema_26
+      } else { NA_real_ }
+    }, by = company_id]
+    
+    # Then calculate signal line
+    dt[, macd_signal := {
+      if (.N >= 35) {  # Need more data for signal line
+        frollapply(macd_line, 9, function(x) {
+          if (length(x) < 2) return(NA_real_)
+          alpha <- 2 / (9 + 1)
+          result <- numeric(length(x))
+          result[1] <- mean(x, na.rm = TRUE)
+          for (i in 2:length(x)) {
+            result[i] <- alpha * x[i] + (1 - alpha) * result[i-1]
+          }
+          result[length(x)]
+        }, align = "right")
+      } else { NA_real_ }
+    }, by = company_id]
+    
+    # Then calculate histogram and signals
+    dt[, macd_hist := macd_line - macd_signal]
+    
+    # Calculate MACD histogram slope separately
+    dt[, macd_hist_slope := {
+      frollapply(macd_hist, 3, function(x) {
+        if (length(x) < 3) return(NA_real_)
+        # Simple slope calculation using linear regression
+        if (all(is.na(x))) return(NA_real_)
+        tryCatch({
+          lm_fit <- lm(x ~ 1:3, na.action = na.omit)
+          coef(lm_fit)[2]
+        }, error = function(e) NA_real_)
+      }, align = "right")
+    }, by = company_id]
+    
+    # Add other MACD signals
+    dt[, `:=`(
+      macd_bullish_cross = (macd_line > macd_signal) & (shift(macd_line) <= shift(macd_signal)),
+      macd_bearish_cross = (macd_line < macd_signal) & (shift(macd_line) >= shift(macd_signal)),
+      macd_hist_trend = data.table::frollmean(macd_hist, 3, align = "right") > data.table::shift(data.table::frollmean(macd_hist, 3, align = "right"), 1),
+      macd_above_zero = macd_line > 0
+    ), by = company_id]
+    
+    log_message("  MACD calculation completed")
   }
-  # Old MACD calculation: if (!"macd_line" %in% names(dt)) {
   #   macd_calc <- function(x) {
   #     m <- TTR::MACD(x, nFast = 12, nSlow = 26, nSig = 9)
   #     if (is.null(m)) return(list(line=rep(NA_real_, length(x)), sig=rep(NA_real_, length(x)), hist=rep(NA_real_, length(x))))
@@ -604,48 +744,39 @@ calculate_indicators_enriched <- function(dt) {
   # }
   # log_message("  MACD indicators calculated")
 
-  # Stochastic oscillator
+  # Stochastic Oscillator - Proper implementation
   if (!"stoch_k" %in% names(dt)) {
     log_message("  Calculating Stochastic indicators...", "DEBUG")
-    dt[, c("stoch_k", "stoch_d") := {
-      # Create a temporary data.table for Stochastic calculation with only required columns
-      temp_stoch_dt <- na.omit(.SD, cols = c("high", "low", "close"))
-      
-      k_val <- rep(NA_real_, .N)
-      d_val <- rep(NA_real_, .N)
-      
-      if (nrow(temp_stoch_dt) < 14) { # Stochastic requires at least 14 observations (nFastK)
-        log_message(sprintf("  DEBUG (Stoch - company %s): Insufficient data (%d rows) for Stochastic calculation, needs at least 14.", .BY$company_id, nrow(temp_stoch_dt)), "DEBUG")
-        return(list(k_val, d_val))
-      }
-      
-      hlc_matrix <- as.matrix(temp_stoch_dt[, .(high, low, close)])
-      log_message(sprintf("  DEBUG (Stoch - company %s): HLC matrix dimensions: %s, class: %s", .BY$company_id, paste(dim(hlc_matrix), collapse = "x"), class(hlc_matrix)), "DEBUG")
-      stoch_res <- TTR::stoch(HLC = hlc_matrix, nFastK = 14, nFastD = 3, nSlowD = 3)
-      
-      if (!is.null(stoch_res) && nrow(stoch_res) > 0) {
-        # Map the calculated Stochastic values back to the original rows
-        original_row_indices <- which(!is.na(high) & !is.na(low) & !is.na(close))
-        
-        if (length(original_row_indices) >= nrow(stoch_res)) {
-          start_fill_idx <- original_row_indices[length(original_row_indices) - nrow(stoch_res) + 1]
-          end_fill_idx <- tail(original_row_indices, 1)
-          
-          if (start_fill_idx > 0 && end_fill_idx >= start_fill_idx) {
-            k_val[start_fill_idx:end_fill_idx] <- stoch_res[,'fastK']
-            d_val[start_fill_idx:end_fill_idx] <- stoch_res[,'slowD']
-          }
-        }
-      }
-      list(k_val, d_val)
+    
+    # First calculate %K
+    dt[, stoch_k := {
+      if (.N >= 14) {
+        # Calculate %K
+        lowest_low <- frollapply(low, 14, min, align = "right", na.rm = TRUE)
+        highest_high <- frollapply(high, 14, max, align = "right", na.rm = TRUE)
+        k_percent <- 100 * (close - lowest_low) / (highest_high - lowest_low + 1e-10)
+        k_percent[is.infinite(k_percent) | is.nan(k_percent)] <- NA_real_
+        k_percent
+      } else { NA_real_ }
     }, by = company_id]
     
-    dt[, stoch_overbought := stoch_k > 80]
-    dt[, stoch_oversold := stoch_k < 20]
-    dt[, stoch_bullish_cross := stoch_k > stoch_d & data.table::shift(stoch_k, 1) <= data.table::shift(stoch_d, 1), by = company_id]
-    dt[, stoch_bearish_cross := stoch_k < stoch_d & data.table::shift(stoch_k, 1) >= data.table::shift(stoch_d, 1), by = company_id]
+    # Then calculate %D
+    dt[, stoch_d := {
+      if (.N >= 17) {  # Need more data for %D (3-period SMA of %K)
+        frollmean(stoch_k, 3, align = "right", na.rm = TRUE)
+      } else { NA_real_ }
+    }, by = company_id]
+    
+    # Then calculate other indicators
+    dt[, `:=`(
+      stoch_overbought = stoch_k > 80,
+      stoch_oversold = stoch_k < 20,
+      stoch_bullish_cross = (stoch_k > stoch_d) & (shift(stoch_k) <= shift(stoch_d)),
+      stoch_bearish_cross = (stoch_k < stoch_d) & (shift(stoch_k) >= shift(stoch_d))
+    ), by = company_id]
+    
+    log_message("  Stochastic indicators calculation completed")
   }
-  log_message("  Stochastic indicators calculated", "DEBUG")
 
   # ----------------------------------------------------------------------------
   # 6. Risk and Position Sizing Metrics (from original mmtm.R)
@@ -671,67 +802,52 @@ calculate_indicators_enriched <- function(dt) {
       list(valid = valid_days >= 21, count = .N, valid_days = valid_days)
     }, by = company_id][valid == TRUE, company_id]
 
-    if (length(valid_companies_risk) > 0) {
-      chunk_size <- 200
-      num_chunks <- ceiling(length(valid_companies_risk) / chunk_size)
-      for (i in 1:num_chunks) {
-        start_idx <- (i - 1) * chunk_size + 1
-        end_idx <- min(i * chunk_size, length(valid_companies_risk))
-        current_companies <- valid_companies_risk[start_idx:end_idx]
+    dt[, var_calc_status := {
+      valid_returns <- !is.na(return_1d) & is.finite(return_1d)
+      ok21 <- data.table::frollsum(as.integer(valid_returns), 21, align = "right", na.rm = TRUE) >= 21
+      ifelse(ok21, "success", "insufficient_data")
+    }, by = company_id]
 
-        dt[company_id %in% current_companies, {
-          var_1d_val <- rep(NA_real_, .N)
-          sharpe_val <- rep(NA_real_, .N)
-          max_dd <- rep(NA_real_, .N)
-          status_calc <- "insufficient_data"
+    dt[, var_1d := {
+      roll_mean <- data.table::frollmean(return_1d, 21, align = "right", na.rm = TRUE)
+      roll_mean_sq <- data.table::frollmean(return_1d^2, 21, align = "right", na.rm = TRUE)
+      variance <- pmax(0, roll_mean_sq - roll_mean^2)
+      roll_sd <- sqrt(variance)
+      out <- roll_mean + stats::qnorm(0.05) * roll_sd
+      out[is.na(var_calc_status) | var_calc_status != "success"] <- NA_real_
+      out
+    }, by = company_id]
 
-          tryCatch({
-            valid_returns <- !is.na(return_1d) & is.finite(return_1d)
-            if (sum(valid_returns) >= 21) {
-              roll_mean <- frollmean(return_1d, 21, align = "right", na.rm = TRUE)
-              roll_mean_sq <- frollmean(return_1d^2, 21, align = "right", na.rm = TRUE)
-              variance <- pmax(0, roll_mean_sq - roll_mean^2)
-              roll_sd <- sqrt(variance)
-              var_1d_val <- roll_mean + qnorm(0.05) * roll_sd
-              sharpe_val <- ifelse(roll_sd > 1e-9,
-                                   roll_mean / roll_sd * sqrt(252),
-                                   sign(roll_mean) * Inf)
-              sharpe_val <- pmin(pmax(sharpe_val, -10), 10)
+    dt[, sharpe_ratio := {
+      roll_mean <- data.table::frollmean(return_1d, 21, align = "right", na.rm = TRUE)
+      roll_mean_sq <- data.table::frollmean(return_1d^2, 21, align = "right", na.rm = TRUE)
+      variance <- pmax(0, roll_mean_sq - roll_mean^2)
+      roll_sd <- sqrt(variance)
+      out <- ifelse(roll_sd > 1e-9, roll_mean / roll_sd * sqrt(252), NA_real_)
+      out <- pmin(pmax(out, -10), 10)
+      out[is.na(var_calc_status) | var_calc_status != "success"] <- NA_real_
+      out
+    }, by = company_id]
 
-              if (.N >= 21) {
-                roll_max <- frollapply(close, min(.N, 252), max, align = "right", na.rm = TRUE)
-                valid_prices <- !is.na(close) & close > 0 & !is.na(roll_max) & roll_max > 0
-                drawdown_calc <- rep(NA_real_, .N)
-                drawdown_calc[valid_prices] <- (close[valid_prices] - roll_max[valid_prices]) / roll_max[valid_prices]
-                max_dd <- frollapply(drawdown_calc, min(.N, 252), min, align = "right", na.rm = FALSE)
-                if (sum(!is.na(max_dd)) < 21) max_dd <- rep(NA_real_, .N)
-              }
-              max_dd <- pmin(pmax(max_dd, -1), 0, na.rm = FALSE)
-              status_calc <- "success"
-            }
-          }, error = function(e) {
-            log_message(sprintf("Error calculating risk metrics for company %s: %s",
-                               .BY$company_id, e$message), "ERROR")
-            status_calc <<- paste0("error: ", conditionMessage(e))
-          })
-          .(
-            var_1d = var_1d_val,
-            max_drawdown_252d = max_dd,
-            sharpe_ratio = sharpe_val,
-            var_calc_status = status_calc
-          )
-        }, by = company_id]
-      }
-    }
+    dt[, max_drawdown_252d := {
+      roll_max <- data.table::frollapply(close, 252, max, align = "right", na.rm = TRUE)
+      dd <- rep(NA_real_, .N)
+      ok <- !is.na(close) & close > 0 & !is.na(roll_max) & roll_max > 0
+      dd[ok] <- close[ok] / roll_max[ok] - 1
+      out <- data.table::frollapply(dd, 252, min, align = "right", na.rm = TRUE)
+      out <- pmin(pmax(out, -1), 0)
+      out[is.na(var_calc_status) | var_calc_status != "success"] <- NA_real_
+      out
+    }, by = company_id]
   }
   log_message("  Risk metrics (VaR, Max Drawdown, Sharpe) calculated")
 
   if (!"kelly_fraction" %in% names(dt)) {
     log_message("Calculating position sizing (Kelly fraction)...")
-    dt[, kelly_fraction := {
-      kf <- calculate_kelly_fraction(return_1d) # Using the helper function
-      rep(ifelse(is.na(kf), 0.1, kf), .N) # Default to 10% if calculation failed
-    }, by = company_id]
+    dt[, kelly_fraction := data.table::frollapply(return_1d, 252, function(x) {
+      kf <- calculate_kelly_fraction(x)
+      ifelse(is.na(kf), 0.1, kf)
+    }, align = "right", fill = NA_real_), by = company_id]
     dt[is.na(kelly_fraction), kelly_fraction := 0.1]
   }
   log_message("  Kelly fraction calculated")
@@ -744,13 +860,7 @@ calculate_indicators_enriched <- function(dt) {
   }
   if (!"smart_money_score_legacy" %in% names(dt)) { # Legacy version for comparison if needed
     log_message("Calculating smart money score (legacy version)...")
-    dt[, smart_money_score_legacy := {
-      score_val <- 50
-      if (!is.null(dt$accumulation_day_orig) && any(accumulation_day_orig, na.rm = TRUE)) score_val <- score_val + 10
-      if (!is.null(dt$buying_pressure_orig_21d_pct) && any(buying_pressure_orig_21d_pct > 0.6, na.rm = TRUE)) score_val <- score_val + 10
-      if (!is.null(dt$absorption_orig) && any(absorption_orig, na.rm = TRUE)) score_val <- score_val + 10
-      pmin(score_val, 100)
-    }, by = company_id]
+    dt[, smart_money_score_legacy := smart_money_score]
   }
   log_message("  Smart money score calculated")
 
@@ -801,14 +911,14 @@ calculate_indicators_enriched <- function(dt) {
         row_weights <- weights[!is.na(row_components)]
         row_values <- row_components[!is.na(row_components)]
         if (length(row_values) > 0) {
-          risk_score_calc[i] <- sum(row_values * row_weights) / sum(row_weights) * 100
+          risk_score_calc[i] <- sum(row_values * row_weights) / sum(row_weights)
         }
       }
       pmin(pmax(risk_score_calc, 0), 100)
     }, by = .(company_id)]
     dt[, risk_category := cut(risk_score,
                               breaks = c(0, 20, 40, 60, 80, 100),
-                              labels = c("Very High", "High", "Medium", "Low", "Very Low"),
+                              labels = c("Very Low", "Low", "Medium", "High", "Very High"),
                               include.lowest = TRUE)]
   }
   log_message("  Composite risk score and risk category calculated")

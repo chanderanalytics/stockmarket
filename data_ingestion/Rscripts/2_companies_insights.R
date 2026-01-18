@@ -78,6 +78,52 @@ tryCatch({
   cat("[DEBUG] Sample names after merge:", paste(head(merged_dt$name, 10), collapse=", "), "\n")
   dt_companies <- merged_dt
   flog.info("Mapped BSE sector/industry using BSE code with _bse suffix.")
+  
+  # 2.1 Get volume data and averages
+  query <- "
+  WITH date_ranges AS (
+    SELECT 
+      MAX(date) as latest_date,
+      MAX(date) - INTERVAL '7 days' as week_ago,
+      MAX(date) - INTERVAL '30 days' as month_ago,
+      MAX(date) - INTERVAL '365 days' as year_ago
+    FROM prices_v2_compatible
+  ),
+  volume_data AS (
+    SELECT 
+      company_id,
+      -- Latest volume
+      MAX(CASE WHEN p.date = d.latest_date THEN total_traded_quantity ELSE NULL END) as volume,
+      -- 1-week average
+      AVG(CASE WHEN p.date BETWEEN d.week_ago AND d.latest_date THEN total_traded_quantity ELSE NULL END) as volume_1week_avg,
+      -- 1-month average
+      AVG(CASE WHEN p.date BETWEEN d.month_ago AND d.latest_date THEN total_traded_quantity ELSE NULL END) as volume_1month_avg,
+      -- 1-year average
+      AVG(CASE WHEN p.date BETWEEN d.year_ago AND d.latest_date THEN total_traded_quantity ELSE NULL END) as volume_1year_avg
+    FROM prices_v2_compatible p
+    CROSS JOIN date_ranges d
+    WHERE p.date >= d.year_ago  -- Only fetch data from the past year for efficiency
+    GROUP BY company_id
+  )
+  SELECT * FROM volume_data WHERE company_id = $1
+  "
+  
+  # Add volume and average columns to dt_companies
+  dt_companies[, c("volume", "volume_1week_avg", "volume_1month_avg", "volume_1year_avg") := {
+    result <- dbGetQuery(con, query, params = list(id))
+    if (nrow(result) > 0) {
+      list(
+        result$volume[1],
+        result$volume_1week_avg[1],
+        result$volume_1month_avg[1],
+        result$volume_1year_avg[1]
+      )
+    } else {
+      list(NA_real_, NA_real_, NA_real_, NA_real_)
+    }
+  }, by = id]
+  
+  flog.info("Added volume data and averages for %d companies", sum(!is.na(dt_companies$volume)))
 
   # 3. Data Cleaning (data.table syntax)
   #dt_companies <- dt_companies[!is.na(market_capitalization) & !is.na(sector) & !is.na(roe)]

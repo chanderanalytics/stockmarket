@@ -51,7 +51,7 @@ setorder(prices_dt, company_id, date)
 prices_dt[adj_close <= 0 | is.na(adj_close), adj_close := NA]
 
 # Batching setup
-batch_size <- 5
+batch_size <- 500
 unique_companies <- unique(prices_dt$company_id)
 n_batches <- ceiling(length(unique_companies) / batch_size)
 
@@ -198,6 +198,16 @@ for (col in prob_cols) {
   nulls <- sum(is.na(merged_price_baseline[[col]]))
   flog.info("%s: non-NULL=%d, NULL=%d", col, non_nulls, nulls)
 }
+# Filter to only latest data based on last_modified in the merged data
+if ("last_modified" %in% names(merged_price_baseline)) {
+  latest_date <- max(merged_price_baseline$last_modified, na.rm = TRUE)
+  flog.info("Latest last_modified in merged_price_baseline: %s", latest_date)
+  if (!is.na(latest_date)) {
+    flog.info("Filtering merged_price_baseline to only include data from latest date: %s", latest_date)
+    merged_price_baseline <- merged_price_baseline[last_modified == latest_date]
+  }
+}
+
 dbWriteTable(
   db_con,
   "merged_price_baseline_probabilities_wide",
@@ -214,6 +224,16 @@ for (col in prob_cols) {
   nulls <- sum(is.na(merged_volume_baseline[[col]]))
   flog.info("%s: non-NULL=%d, NULL=%d", col, non_nulls, nulls)
 }
+# Filter to only latest data based on last_modified in the merged data
+if ("last_modified" %in% names(merged_volume_baseline)) {
+  latest_date <- max(merged_volume_baseline$last_modified, na.rm = TRUE)
+  flog.info("Latest last_modified in merged_volume_baseline: %s", latest_date)
+  if (!is.na(latest_date)) {
+    flog.info("Filtering merged_volume_baseline to only include data from latest date: %s", latest_date)
+    merged_volume_baseline <- merged_volume_baseline[last_modified == latest_date]
+  }
+}
+
 dbWriteTable(
   db_con,
   "merged_volume_baseline_probabilities_wide",
@@ -230,6 +250,16 @@ for (col in prob_cols) {
   nulls <- sum(is.na(merged_price_spike[[col]]))
   flog.info("%s: non-NULL=%d, NULL=%d", col, non_nulls, nulls)
 }
+# Filter to only latest data based on last_modified in the merged data
+if ("last_modified" %in% names(merged_price_spike)) {
+  latest_date <- max(merged_price_spike$last_modified, na.rm = TRUE)
+  flog.info("Latest last_modified in merged_price_spike: %s", latest_date)
+  if (!is.na(latest_date)) {
+    flog.info("Filtering merged_price_spike to only include data from latest date: %s", latest_date)
+    merged_price_spike <- merged_price_spike[last_modified == latest_date]
+  }
+}
+
 dbWriteTable(
   db_con,
   "merged_price_spike_probabilities_wide",
@@ -246,6 +276,16 @@ for (col in prob_cols) {
   nulls <- sum(is.na(merged_volume_spike[[col]]))
   flog.info("%s: non-NULL=%d, NULL=%d", col, non_nulls, nulls)
 }
+# Filter to only latest data based on last_modified in the merged data
+if ("last_modified" %in% names(merged_volume_spike)) {
+  latest_date <- max(merged_volume_spike$last_modified, na.rm = TRUE)
+  flog.info("Latest last_modified in merged_volume_spike: %s", latest_date)
+  if (!is.na(latest_date)) {
+    flog.info("Filtering merged_volume_spike to only include data from latest date: %s", latest_date)
+    merged_volume_spike <- merged_volume_spike[last_modified == latest_date]
+  }
+}
+
 dbWriteTable(
   db_con,
   "merged_volume_spike_probabilities_wide",

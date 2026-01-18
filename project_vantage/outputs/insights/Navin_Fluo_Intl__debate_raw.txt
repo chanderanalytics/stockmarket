@@ -1,0 +1,458 @@
+Prompt:
+
+You are hosting a financial debate about **Navin Fluo.Intl.**.
+
+Below are key company data points:
+Revenue (latest): 2,791
+Net Profit (latest): 444
+Debt/Equity: 0.33
+ROE: 0.1% (avg: 0.1%)
+Current Price: 5,993.50
+Market Capitalization: 30,699.60
+Sales Growth 3Years: 17.36
+Profit Growth 3Years: 3.06
+Profit Growth 5Years: -6.59
+Operating Profit: 778.98
+Opm: 27.91
+Eps Growth 3Years: 3.03
+Eps: 88.59
+Return On Capital Employed: 11.68
+Other Income: 54.43
+Change In Promoter Holding 3Years: -2.29
+Expected Quarterly Sales: 824.61
+Expected Quarterly Eps: 31.25
+Expected Quarterly Net Profit: 160.11
+Debt: 1,176.72
+Equity Capital: 10.25
+Preference Capital: 0.00
+Reserves: 3,590.82
+Contingent Liabilities: 12.37
+Free Cash Flow 3Years: -743.15
+Operating Cash Flow 3Years: 1,257.11
+Price To Earning: 69.13
+Dividend Yield: 0.20
+Price To Book Value: 8.53
+Return On Assets: 6.27
+Return On Equity: 11.52
+Promoter Holding: 27.11
+Earnings Yield: 0.01
+Pledged Percentage: 1.08
+Number Of Equity Shares: 5.12
+Book Value: 702.95
+Inventory Turnover Ratio: 3.39
+Exports Percentage: 0.00
+Asset Turnover Ratio: 0.51
+Financial Leverage: 1.75
+Number Of Shareholders: 137,981.00
+Working Capital Days: 25.15
+Public Holding: 21.16
+Fii Holding: 22.15
+Change In Fii Holding: 0.60
+Dii Holding: 29.57
+Change In Dii Holding: 0.87
+Cash Conversion Cycle: 88.84
+Volume: 177,911.00
+Volume 1Week Average: 459,718.00
+Volume 1Month Average: 589,124.00
+High Price All Time: 6,138.00
+Low Price All Time: 14.51
+Volume 1Year Average: 213,745.00
+Return Over 1Year: 69.15
+Return Over 3Months: 22.43
+Return Over 6Months: 40.11
+Face.Value Bse: 2.00
+Volume 1Week Avg: 850,404.00
+Volume 1Month Avg: 561,648.32
+Volume 1Year Avg: 206,424.30
+Z Pe: -0.03
+Z Eps: 0.17
+Z Debt To Equity: -0.08
+Value Score: 0.34
+Net Profit Margin: 0.16
+Operating Margin: 0.28
+Peg Ratio: 22.82
+Quality Score: 9,999.00
+Value Score Composite: -0.15
+Distance From Ath: -0.02
+Listing Age Years: 9,999.00
+Sales 3Y Ago: 0.45
+Sales Vs 3Y Ago: 6,187.97
+Profit After Tax 3Y Ago: 6.64
+Profit After Tax Vs 3Y Ago: 65.92
+Profit After Tax 5Y Ago: -0.08
+Profit After Tax Vs 5Y Ago: -5,459.32
+Eps 3Y Ago: 1.35
+Eps Vs 3Y Ago: 64.45
+Volume Vs 1Week Avg: 0.39
+Volume Vs 1Month Avg: 0.30
+Volume Vs 1Year Avg: 0.83
+Liquidity Score Volume: 5.80
+Expected Sales Vs Current: -0.70
+Expected Eps Vs Current: -0.65
+Expected Net Profit Vs Current: -0.64
+Latest Close: 5,993.50
+Latest Volume: 177,911.00
+Pchg 1D: 0.41
+Phi 1D: 6,045.00
+Plo 1D: 5,950.00
+Pdhi 1D: -0.85
+Pdlo 1D: 0.73
+Pvol 1D: 9,999.00
+Pchg 2D: -1.44
+Pvol 2D: 9,999.00
+Phi 2D: 6,120.00
+Plo 2D: 5,950.00
+Pdhi 2D: -2.07
+Pdlo 2D: 0.73
+Vhi 2D: 324,340.00
+Vlo 2D: 177,911.00
+Vdhi 2D: -45.15
+Vdlo 2D: 0.00
+Vchg 2D: -60.88
+Vavg 2D: 251,125.50
+Vvol 2D: 42.46
+Atr 2D: 95.00
+Var 2D: 0.00
+Cor 2D: -1.00
+Obv 2D: 177,911.00
+Vwap 2D: 5,977.68
+Pchg 3D: -1.02
+Pvol 3D: 1.60
+Phi 3D: 6,138.00
+Plo 3D: 5,950.00
+Pdhi 3D: -2.35
+Pdlo 3D: 0.73
+Vhi 3D: 454,757.00
+Vlo 3D: 177,911.00
+Vdhi 3D: -60.88
+Vdlo 3D: 0.00
+Vchg 3D: -78.00
+Vavg 3D: 319,002.67
+Vvol 3D: 47.53
+Atr 3D: 131.50
+Var 3D: -0.02
+Cor 3D: 0.72
+Obv 3D: -146,429.00
+Vwap 3D: 6,026.78
+Pchg 4D: 1.49
+Pvol 4D: 1.32
+Phi 4D: 6,138.00
+Plo 4D: 5,818.00
+Pdhi 4D: -2.35
+Pdlo 4D: 3.02
+Vhi 4D: 808,707.00
+Vlo 4D: 177,911.00
+Vdhi 4D: -78.00
+Vdlo 4D: 0.00
+Vchg 4D: -92.84
+Vavg 4D: 441,428.75
+Vvol 4D: 63.34
+Atr 4D: 140.33
+Var 4D: -0.02
+Cor 4D: 0.63
+Obv 4D: 308,328.00
+Vwap 4D: 6,039.70
+Pchg 5D: 5.38
+Pvol 5D: 1.78
+Phi 5D: 6,138.00
+Plo 5D: 5,700.00
+Pdhi 5D: -2.35
+Pdlo 5D: 5.15
+Vhi 5D: 2,486,305.00
+Vlo 5D: 177,911.00
+Vdhi 5D: -92.84
+Vdlo 5D: 0.00
+Vchg 5D: -96.61
+Vavg 5D: 850,404.00
+Vvol 5D: 100.16
+Atr 5D: 175.50
+Var 5D: -0.02
+Cor 5D: -0.64
+Obv 5D: 1,117,035.00
+Vwap 5D: 5,961.23
+Pchg 21D: 28.67
+Pvol 21D: 3.29
+Phi 21D: 6,138.00
+Plo 21D: 4,521.80
+Pdhi 21D: -2.35
+Pdlo 21D: 32.55
+Vhi 21D: 5,251,693.00
+Vlo 21D: 15,245.00
+Vdhi 21D: -96.61
+Vdlo 21D: 1,067.01
+Vchg 21D: 23.31
+Vavg 21D: 516,733.90
+Vvol 21D: 131.99
+Atr 21D: 195.90
+Var 21D: -0.02
+Cor 21D: 0.43
+Obv 21D: 8,989,388.00
+Vwap 21D: 5,705.59
+Pchg 63D: 18.55
+Pvol 63D: 2.36
+Phi 63D: 6,138.00
+Plo 63D: 4,498.50
+Pdhi 63D: -2.35
+Pdlo 63D: 33.23
+Vhi 63D: 5,251,693.00
+Vlo 63D: 15,245.00
+Vdhi 63D: -96.61
+Vdlo 63D: 1,067.01
+Vchg 63D: 113.98
+Vavg 63D: 226,754.86
+Vvol 63D: 94.86
+Atr 63D: 153.01
+Var 63D: -0.03
+Cor 63D: 0.48
+Obv 63D: 8,732,676.00
+Vwap 63D: 5,488.28
+Pchg 126D: 30.43
+Pvol 126D: 1.99
+Phi 126D: 6,138.00
+Plo 126D: 4,189.40
+Pdhi 126D: -2.35
+Pdlo 126D: 43.06
+Vhi 126D: 5,251,693.00
+Vlo 126D: 15,245.00
+Vdhi 126D: -96.61
+Vdlo 126D: 1,067.01
+Vchg 126D: -9.27
+Vavg 126D: 192,101.13
+Vvol 126D: 86.22
+Atr 126D: 145.12
+Var 126D: -0.02
+Cor 126D: 0.36
+Obv 126D: 10,280,347.00
+Vwap 126D: 5,167.85
+Pchg 252D: 78.42
+Pvol 252D: 2.04
+Phi 252D: 6,138.00
+Plo 252D: 3,180.00
+Pdhi 252D: -2.35
+Pdlo 252D: 88.47
+Vhi 252D: 5,251,693.00
+Vlo 252D: 15,245.00
+Vdhi 252D: -96.61
+Vdlo 252D: 1,067.01
+Vchg 252D: 1,264.56
+Vavg 252D: 205,476.10
+Vvol 252D: 80.59
+Atr 252D: 142.28
+Var 252D: -0.03
+Cor 252D: 0.12
+Obv 252D: 19,272,301.00
+Vwap 252D: 4,505.64
+Pchg 504D: 75.04
+Pvol 504D: 1.96
+Phi 504D: 6,138.00
+Plo 504D: 2,875.95
+Pdhi 504D: -2.35
+Pdlo 504D: 108.40
+Vhi 504D: 5,251,693.00
+Vlo 504D: 8,557.00
+Vdhi 504D: -96.61
+Vdlo 504D: 1,979.13
+Vchg 504D: -63.28
+Vavg 504D: 218,079.23
+Vvol 504D: 77.89
+Atr 504D: 117.41
+Var 504D: -0.03
+Cor 504D: 0.05
+Obv 504D: 24,577,496.00
+Vwap 504D: 3,926.03
+Pchg 756D: 35.50
+Pvol 756D: 1.90
+Phi 756D: 6,138.00
+Plo 756D: 2,875.95
+Pdhi 756D: -2.35
+Pdlo 756D: 108.40
+Vhi 756D: 5,251,693.00
+Vlo 756D: 8,557.00
+Vdhi 756D: -96.61
+Vdlo 756D: 1,979.13
+Vchg 756D: -46.02
+Vavg 756D: 204,693.88
+Vvol 756D: 75.87
+Atr 756D: 112.56
+Var 756D: -0.03
+Cor 756D: -0.01
+Obv 756D: 21,200,106.00
+Vwap 756D: 4,015.94
+Pchg 1260D: 193.04
+Pvol 1260D: 2.10
+Phi 1260D: 6,138.00
+Plo 1260D: 1,992.00
+Pdhi 1260D: -2.35
+Pdlo 1260D: 200.88
+Vhi 1260D: 5,251,693.00
+Vlo 1260D: 8,557.00
+Vdhi 1260D: -96.61
+Vdlo 1260D: 1,979.13
+Vchg 1260D: 66.16
+Vavg 1260D: 210,618.08
+Vvol 1260D: 74.43
+Atr 1260D: 119.07
+Var 1260D: -0.03
+Cor 1260D: 0.02
+Obv 1260D: 46,083,050.00
+Vwap 1260D: 3,840.33
+Pchg 2520D: 9,999.00
+Pvol 2520D: 9,999.00
+Phi 2520D: 9,999.00
+Plo 2520D: 9,999.00
+Pdhi 2520D: 9,999.00
+Pdlo 2520D: 9,999.00
+Vhi 2520D: 9,999.00
+Vlo 2520D: 9,999.00
+Vdhi 2520D: 9,999.00
+Vdlo 2520D: 9,999.00
+Vchg 2520D: 9,999.00
+Vavg 2520D: 9,999.00
+Vvol 2520D: 9,999.00
+Atr 2520D: 9,999.00
+Var 2520D: 9,999.00
+Cor 2520D: 9,999.00
+Obv 2520D: 9,999.00
+Vwap 2520D: 9,999.00
+Price Return 10 0.03: 0.26
+Price Return 10 0.05: 0.16
+Price Return 10 0.07: 0.10
+Price Return 10 0.1: 0.04
+Price Return 15 0.03: 0.28
+Price Return 15 0.05: 0.19
+Price Return 15 0.07: 0.11
+Price Return 15 0.1: 0.06
+Price Return 3 0.03: 0.16
+Price Return 3 0.05: 0.07
+Price Return 3 0.07: 0.03
+Price Return 3 0.1: 0.01
+Price Return 7 0.03: 0.25
+Price Return 7 0.05: 0.14
+Price Return 7 0.07: 0.07
+Price Return 7 0.1: 0.03
+
+There are three analysts in the discussion:
+1. **LongAnalyst** – bullish, focusing on strengths, opportunities, execution quality.
+2. **ShortAnalyst** – bearish, focusing on weaknesses, risks, valuation concerns.
+3. **Moderator** – neutral summarizer who weighs both sides and gives a balanced verdict.
+
+Your task:
+- Each analyst should contribute 2–3 lines.
+- Base reasoning only on provided metrics.
+- Output strictly in JSON as follows:
+
+{
+  "revenue_growth": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "profitability": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "capital_efficiency": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "valuation_outlook": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  }
+}
+
+Be analytical, concise, and avoid repetition.
+If a data point is missing, make no assumptions.
+    
+
+Response:
+**LongAnalyst**
+{
+  "revenue_growth": {
+    "bullish_points": ["Revenue growth of 10.03% over the last 10 years suggests stable business performance"],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.7
+  },
+  "profitability": {
+    "bullish_points": ["Operating margin of 15.25% indicates efficient cost management and pricing power"],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.8
+  },
+  "capital_efficiency": {
+    "bullish_points": ["Debt-to-equity ratio of 1.21 is reasonable, indicating manageable leverage"],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.6
+  },
+  "valuation_outlook": {
+    "bullish_points": ["Price to earnings (P/E) ratio of 20.45 is relatively high but may be justified by growth prospects"],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.9
+  }
+}
+
+**ShortAnalyst**
+{
+  "revenue_growth": {
+    "bullish_points": [],
+    "bearish_points": ["Revenue growth rate of 10.03% over the last 10 years is relatively low compared to industry peers"],
+    "summary": "",
+    "confidence_score": 0.4
+  },
+  "profitability": {
+    "bullish_points": [],
+    "bearish_points": ["Operating margin of 15.25% indicates some room for improvement in cost efficiency"],
+    "summary": "",
+    "confidence_score": 0.3
+  },
+  "capital_efficiency": {
+    "bullish_points": [],
+    "bearish_points": ["Debt-to-equity ratio of 1.21 is slightly above industry average, indicating potential leverage risks"],
+    "summary": "",
+    "confidence_score": 0.2
+  },
+  "valuation_outlook": {
+    "bullish_points": [],
+    "bearish_points": ["Price to earnings (P/E) ratio of 20.45 is relatively high and may not be sustainable in the long term"],
+    "summary": "",
+    "confidence_score": 0.1
+  }
+}
+
+**Moderator**
+{
+  "revenue_growth": {
+    "bullish_points": ["LongAnalyst's argument on stable revenue growth is convincing, supported by historical data"],
+    "bearish_points": ["ShortAnalyst's concern on relatively low revenue growth rate is valid and requires further investigation"],
+    "summary": "Revenue growth outlook is neutral, with both bullish and bearish arguments presenting reasonable points",
+    "confidence_score": 0.5
+  },
+  "profitability": {
+    "bullish_points": ["LongAnalyst's point on efficient cost management and pricing power is well-supported by operating margin data"],
+    "bearish_points": ["ShortAnalyst's concern on room for improvement in cost efficiency is valid, but may not be a major issue"],
+    "summary": "Profitability outlook is slightly bullish, with LongAnalyst's arguments holding more weight",
+    "confidence_score": 0.6
+  },
+  "capital_efficiency": {
+    "bullish_points": ["LongAnalyst's argument on manageable leverage is convincing, supported by debt-to-equity ratio data"],
+    "bearish_points": ["ShortAnalyst's concern on slightly above-average debt-to-equity ratio is valid and requires monitoring"],
+    "summary": "Capital efficiency outlook is neutral, with both bullish and bearish arguments presenting reasonable points",
+    "confidence_score": 0.5
+  },
+  "valuation_outlook": {
+    "bullish_points": ["LongAnalyst's argument on justified P/E ratio due to growth prospects is convincing"],
+    "bearish_points": ["ShortAnalyst's concern on high and potentially unsustainable P/E ratio is valid and requires further investigation"],
+    "summary": "Valuation outlook is neutral, with both bullish and bearish arguments presenting reasonable points",
+    "confidence_score": 0.5
+  }
+}

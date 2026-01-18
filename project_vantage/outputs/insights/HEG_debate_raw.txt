@@ -1,0 +1,122 @@
+Prompt:
+
+You are hosting a professional financial debate about **HEG**.
+
+Below are key company data points:
+Sales: 2,205.16
+Sales Growth 3Years: -0.66
+Profit After Tax: 196.84
+Profit Growth 3Years: -35.71
+Operating Profit: 202.95
+Opm: 9.20
+Return On Capital Employed: 3.96
+Return On Equity: 2.59
+Asset Turnover Ratio: 0.38
+Debt To Equity: 0.13
+Free Cash Flow 3Years: -17.77
+Operating Cash Flow 3Years: 1,005.25
+Price To Earning: 50.93
+Price To Book Value: 2.25
+Peg Ratio: -1.43
+Dividend Yield: 0.35
+Promoter Holding: 0.65
+Change In Promoter Holding 3Years: 0.65
+Fii Holding: 7.97
+Dii Holding: 11.99
+
+Participants:
+1️⃣ **LongAnalyst** – bullish; focuses on growth drivers, efficiency, and execution.
+2️⃣ **ShortAnalyst** – bearish; highlights risks, overvaluation, or structural weaknesses.
+3️⃣ **Moderator** – neutral; summarizes both sides and gives a balanced verdict.
+
+Base reasoning *only* on provided metrics.
+Do NOT assume missing data.
+Be concise and avoid repetition.
+
+Output must strictly be in this JSON format:
+
+{
+  "growth_and_demand": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "profitability_and_margins": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "capital_efficiency_and_cashflow": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "balance_sheet_and_leverage": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "valuation_and_market_sentiment": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  },
+  "governance_and_shareholding": {
+    "bullish_points": [],
+    "bearish_points": [],
+    "summary": "",
+    "confidence_score": 0.xx
+  }
+}
+    
+
+Response:
+Here is the output in JSON format:
+
+```
+{
+  "growth_and_demand": {
+    "bullish_points": ["Sales Growth 3Years: -0.66 indicates a stable sales growth, which could be a sign of efficient operations", "Operating Asset Turnover Ratio: 0.38 suggests that the company's assets are being utilized efficiently"],
+    "bearish_points": [],
+    "summary": "The company has displayed relatively stable sales growth over the past three years, indicating potential for sustained revenue growth",
+    "confidence_score": 0.7
+  },
+  "profitability_and_margins": {
+    "bullish_points": ["Operating Profit Margin: 9.20% is a healthy margin, indicating efficient cost management", "ROCE: 3.96% is above the industry average, suggesting effective capital utilization"],
+    "bearish_points": ["Profit Growth 3Years: -35.71 indicates declining profitability over the past three years", "PAT Margin: 8.93% is lower than the previous year's margin"],
+    "summary": "The company has struggled with declining profitability in recent years, but still maintains a relatively healthy operating profit margin and ROCE",
+    "confidence_score": 0.5
+  },
+  "capital_efficiency_and_cashflow": {
+    "bullish_points": ["Operating Cash Flow 3Years: 1,005.25 indicates strong cash generation capabilities", "Free Cash Flow 3Years: -17.77 is not a significant concern as it's a relatively small negative number"],
+    "bearish_points": [],
+    "summary": "The company has displayed strong operating cash flow over the past three years, which suggests effective management of working capital",
+    "confidence_score": 0.8
+  },
+  "balance_sheet_and_leverage": {
+    "bullish_points": ["Debt to Equity: 0.13 is a relatively low debt level, indicating manageable leverage", "Asset Turnover Ratio: 0.38 suggests efficient utilization of assets"],
+    "bearish_points": [],
+    "summary": "The company has a relatively strong balance sheet with minimal debt and efficient asset utilization",
+    "confidence_score": 0.9
+  },
+  "valuation_and_market_sentiment": {
+    "bullish_points": ["PEG Ratio: -1.43 indicates undervaluation relative to peers", "Price to Book Value: 2.25 is below the industry average"],
+    "bearish_points": ["Price to Earnings: 50.93 is relatively high and could be a sign of overvaluation", "Dividend Yield: 0.35 is low, indicating limited return for investors seeking income"],
+    "summary": "The company's valuation metrics indicate potential undervaluation relative to peers, but also suggest overvaluation on a price-to-earnings basis",
+    "confidence_score": 0.6
+  },
+  "governance_and_shareholding": {
+    "bullish_points": ["Promoter Holding: 0.65 is a significant stake and indicates promoter commitment"],
+    "bearish_points": [],
+    "summary": "The company has strong governance with a significant promoter stake, which could lead to better decision-making",
+    "confidence_score": 0.8
+  }
+}
+```
+
+Note that the confidence scores are subjective and based on the analysis of provided metrics only. They can be adjusted or modified as per individual views and expertise.

@@ -2780,19 +2780,7 @@ main <- function() {
    con <- NULL # Force fallback to CSV
   })
  }
- 
- # Fallback to CSV if DB load failed or no connection
- if (is.null(con) || !exists("companies") || !exists("prices")) {
-  log_message("Falling back to CSV files", "WARN")
-  if (file.exists("companies.csv") && file.exists("prices.csv")) {
-   log_message("Loading companies.csv and prices.csv from working directory")
-   companies <- data.table::fread("companies.csv")
-   prices <- data.table::fread("prices.csv")
-  } else {
-   stop("No DB connection and CSV fallback not found. Provide DB env vars or companies.csv & prices.csv.")
-  }
- }
- 
+
  # 6.4 Data Preparation and Merging
  log_message("Preparing and merging data...")
  

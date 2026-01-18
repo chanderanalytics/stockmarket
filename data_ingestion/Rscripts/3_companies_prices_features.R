@@ -1,3 +1,4 @@
+
 # 3_companies_prices_features.R
 
 source("data_ingestion/Rscripts/0_setup_renv.R")
@@ -29,48 +30,23 @@ db_con <- dbConnect(
 con <- dbConnect(
   RPostgres::Postgres(),
   dbname = Sys.getenv("PGDATABASE"),
-  host = Sys.getenv("PGHOST"),
   port = as.integer(Sys.getenv("PGPORT")),
   user = Sys.getenv("PGUSER"),
   password = Sys.getenv("PGPASSWORD")
 )
 
-companies <- as.data.table(dbReadTable(con, "companies"))
-# Use the prices_v2_compatible view instead of direct table access
-prices <- as.data.table(dbReadTable(con, "prices_v2_compatible"))
-today <- Sys.Date()
-
-# Allow override of 'today' via command-line argument
+# Require date as first command line argument
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) > 0 && grepl("^\\d{4}-\\d{2}-\\d{2}$", args[1])) {
-  today <- as.Date(args[1])
-} else {
-  today <- Sys.Date()
+if (length(args) == 0 || !grepl("^\\d{4}-\\d{2}-\\d{2}$", args[1])) {
+  stop("Error: Please provide a valid date in YYYY-MM-DD format as the first argument")
 }
-cat(sprintf("[INFO] Using 'today' as: %s\n", as.character(today)))
+ref_date <- as.Date(args[1])
+cat(sprintf("[INFO] Using reference date: %s\n", as.character(ref_date)))
+
 # Allow override of test_n via second command-line argument
 if (length(args) > 1 && !is.na(as.numeric(args[2]))) {
   test_n <- as.numeric(args[2])
   cat(sprintf("[INFO] Using test_n: %d\n", test_n))
-}
-
-# Use reference date for all operations
-ref_date <- today  # Store the reference date
-cat(sprintf("[DEBUG] Using reference date: %s\n", as.character(ref_date)))
-
-# For each company, if no price for reference date, insert from current_price
-for (i in 1:nrow(companies)) {
-  code <- companies$company_code[i]
-  cid <- companies$id[i]
-  if (length(code) != 1 || is.na(code) || code == "" || length(cid) != 1 || is.na(cid) || cid == "") next
-  # Check if there's a price for the reference date
-  if (nrow(prices[company_id == cid & date == ref_date]) == 0 && !is.na(companies$current_price[i])) {
-    dbExecute(con, sprintf(
-      "INSERT INTO prices_v2_compatible (company_code, company_id, date, close, last_modified) VALUES ('%s', %d, '%s', %f, '%s')",
-      code, cid, ref_date, companies$current_price[i], ref_date
-    ))
-    cat(sprintf("Inserted today's price from companies table for %s: %f\n", code, companies$current_price[i]))
-  }
 }
 
 tryCatch({
@@ -81,13 +57,76 @@ tryCatch({
   companies_dt <- as.data.table(dbGetQuery(db_con, companies_query))
   print('Columns in companies_dt:')
   print(names(companies_dt))
-  prices_dt <- as.data.table(dbGetQuery(db_con, "SELECT *, total_traded_quantity as volume FROM prices_v2_compatible"))
-  flog.info("Loaded %d companies and %d price records", nrow(companies_dt), nrow(prices_dt))
+  
+  # First, check total count in the view for reference
+  total_count <- dbGetQuery(db_con, "SELECT COUNT(*) as total FROM prices_v2_compatible")$total
+  flog.info("Total records in prices_v2_compatible view: %.0f", as.numeric(total_count))
+  
+  # Function to load prices in batches
+  load_prices_batch <- function(company_ids, batch_size = 500) {
+    # Split company IDs into batches
+    batches <- split(company_ids, ceiling(seq_along(company_ids) / batch_size))
+    all_prices <- list()
+    
+    flog.info("Loading prices in batches of %d companies...", batch_size)
+    
+    for (i in seq_along(batches)) {
+      batch <- batches[[i]]
+      id_list <- paste0("('", paste(batch, collapse = "','"), "')")
+      
+      # Load batch of prices
+      query <- sprintf(
+        "SELECT *, total_traded_quantity as volume 
+         FROM prices_v2_compatible 
+         WHERE company_id IN %s",
+        id_list
+      )
+      
+      batch_prices <- as.data.table(dbGetQuery(db_con, query))
+      flog.debug("Batch %.0f: Loaded %.0f price records for %.0f companies", 
+                as.numeric(i), 
+                as.numeric(nrow(batch_prices)), 
+                as.numeric(length(unique(batch_prices$company_id))))
+      all_prices[[i]] <- batch_prices
+      
+      flog.debug("Loaded batch %d/%d: %d price records", 
+                i, length(batches), nrow(batch_prices))
+      
+      # Clean up
+      rm(batch_prices)
+      gc()
+    }
+    
+    # Combine all batches
+    rbindlist(all_prices, use.names = TRUE)
+  }
+  
+  # Load prices in batches and ensure consistent types
+  company_ids <- unique(companies_dt$id)
+  flog.info("Loading prices for %.0f unique company IDs", as.numeric(length(company_ids)))
+  
+  # Ensure company_ids are character type
+  company_ids <- as.character(company_ids)
+  
+  # Load prices in batches
+  prices_dt <- load_prices_batch(company_ids)
+  
+  # Ensure company_id is character type in prices_dt
+  prices_dt[, company_id := as.character(company_id)]
+  
+  flog.info("Loaded price data - %.0f rows, %.0f unique companies", 
+           as.numeric(nrow(prices_dt)), 
+           as.numeric(length(unique(prices_dt$company_id))))
+  
+  # Log data types for debugging
+  flog.info("company_id type: %s, company_ids type: %s", 
+           class(prices_dt$company_id)[1], 
+           class(company_ids)[1])
 
   # Ensure date is Date type
   prices_dt[, date := as.Date(date)]
   latest_date <- max(prices_dt$date, na.rm = TRUE)
-  flog.info("Latest price date availble (ref date may be diferent): %s", as.character(latest_date))
+  flog.info("Latest price date available (ref date may be different): %s", as.character(latest_date))
 
   # Define lags/periods (in trading days)
   lags <- c(1, 2, 3, 4, 5, 21, 63, 126, 252, 504, 756, 1260, 2520)  # 1d, 2d, 3d, 4d, 1w, 1m, 3m, 6m, 1y, 2y, 3y, 5y, 10y
@@ -142,8 +181,8 @@ tryCatch({
   cat("class(companies_dt$id):", class(companies_dt$id), "\n")
   cat("class(prices_dt$company_id):", class(prices_dt$company_id), "\n")
   cat("Number of companies in companies_dt:", length(unique(companies_dt$id)), "\n")
-  cat("Number of companies in prices_dt for today:", length(unique(prices_dt[date == today, company_id])), "\n")
-  cat("Number of overlapping IDs:", length(intersect(unique(companies_dt$id), unique(prices_dt[date == today, company_id]))), "\n")
+  cat(sprintf("Number of companies in prices_dt for %s: %d\n", as.character(ref_date), length(unique(prices_dt[date == ref_date, company_id]))))
+  cat(sprintf("Number of overlapping IDs: %d\n", length(intersect(unique(companies_dt$id), unique(prices_dt[date == ref_date, company_id])))))
 
   # Left join companies to prices on id = company_id
   joined_dt <- merge(companies_dt, prices_dt, by.x = "id", by.y = "company_id", all.x = TRUE)
@@ -220,7 +259,7 @@ tryCatch({
     price_source <- "none"
     
     # First try to get price for the reference date
-    ref_date_row <- dt[date == today]
+    ref_date_row <- dt[date == ref_date]
     if (nrow(ref_date_row) > 0) {
       # Try adj_close first
       if ("adj_close" %in% names(ref_date_row) && !is.na(ref_date_row$adj_close[1])) {
@@ -304,7 +343,7 @@ tryCatch({
       vwap_col <- paste0("vwap_", lag, "d")
       
       # Find the reference date position in the dataset
-      ref_date_idx <- which(dt$date == today)
+      ref_date_idx <- which(dt$date == ref_date)
       if (length(ref_date_idx) > 0 && !is.na(latest_close)) {
         ref_idx <- ref_date_idx[1]
         
@@ -491,10 +530,11 @@ tryCatch({
 
   # Log the number of companies with matched price data
   diagnostics_count <- nrow(features_dt[!is.na(latest_close) & latest_close != 9999])
+  flog.info("Number of companies with valid price data: %d", diagnostics_count)
 
   flog.info("Number of companies with matched price data: %d", diagnostics_count)
 
-  flog.info("\n=== PRICE SOURCE SUMMARY FOR REFERENCE DATE %s ===\n", as.character(today))
+  flog.info("\n=== PRICE SOURCE SUMMARY FOR REFERENCE DATE %s ===\n", as.character(ref_date))
   flog.info("adj_close was used for %d companies\n", adj_close_used)
   flog.info("close was used for %d companies\n", close_used)
   flog.info("current_price from companies table was used for %d companies\n", current_price_used)
@@ -527,7 +567,7 @@ tryCatch({
 
   # After features_dt is created and has the 'latest_close' and 'latest_volume' columns
   # Only print the final summary
-  cat(sprintf("\n=== PRICE SOURCE SUMMARY FOR REFERENCE DATE %s ===\n", as.character(today)))
+  cat(sprintf("\n=== PRICE SOURCE SUMMARY FOR REFERENCE DATE %s ===\n", as.character(ref_date)))
   cat(sprintf("adj_close was used for %d companies\n", adj_close_used))
   cat(sprintf("close was used for %d companies\n", close_used))
   cat(sprintf("current_price from companies table was used for %d companies\n", current_price_used))
