@@ -1,0 +1,15 @@
+export type KnowledgeCategory =
+  | "market"
+  | "breadth"
+  | "sector"
+  | "stock"
+  | "signal"
+  | "probability"
+  | "decision"
+  | "portfolio"
+  | "watchlist"
+  | "risk"
+  | "momentum"
+  | "opportunity"
+  | "research"
+  | "general";

@@ -27,6 +27,7 @@ def create_prices_view():
         
         # SQL to create or replace the view
         create_view_sql = """
+        
         CREATE OR REPLACE VIEW prices_v2_compatible AS
         SELECT 
             id,
@@ -44,8 +45,17 @@ def create_prices_view():
             total_trades,
             isin,
             exchange,
-            company_name_updated AS company_name,
-            company_id,
+
+            CASE WHEN symbol = 'TATAMOTORS'
+            THEN 'Tata Motors'
+            ELSE company_name_updated
+            END AS company_name,
+            
+            CASE WHEN symbol = 'TATAMOTORS'
+            THEN 50627
+            ELSE company_id
+            END AS company_id,
+
             created_at,
             updated_at
         FROM 

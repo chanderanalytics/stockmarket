@@ -136,11 +136,14 @@ def import_insider_trades_incremental(csv_path, max_rows=None):
                     cleaned_row = {k: v.strip() if isinstance(v, str) else v for k, v in row.items()}
 
                     # Parse broadcast datetime and derive broadcast_date
-                    broadcast_dt = process_datetime(cleaned_row.get('BROADCASTE DATE AND TIME'))
+                    broadcast_dt = process_datetime(cleaned_row.get('BROADCASTE DATE AND TIME') or cleaned_row.get('BROADCAST DATE/TIME'))
+                
                     params = {
                         'symbol': cleaned_row.get('SYMBOL'),
-                        'company': cleaned_row.get('COMPANY'),
+    
+                        'company': (cleaned_row.get('COMPANY') or cleaned_row.get('COMPANY NAME')),
                         'regulation': cleaned_row.get('REGULATION'),
+                        
                         'name_of_acquirer_disposer': cleaned_row.get('NAME OF THE ACQUIRER/DISPOSER'),
                         'category_of_person': cleaned_row.get('CATEGORY OF PERSON'),
                         'security_type_prior': cleaned_row.get('TYPE OF SECURITY (PRIOR)'),
@@ -165,6 +168,8 @@ def import_insider_trades_incremental(csv_path, max_rows=None):
                         'contract_lot_size_sell': safe_int(cleaned_row.get('NUMBER OF UNITS/CONTRACT LOT SIZE  (SELL)')),
                         'exchange': cleaned_row.get('EXCHANGE'),
                         'remark': cleaned_row.get('REMARK'),
+
+                        
                         'broadcast_date': broadcast_dt.date() if broadcast_dt else None,
                         'broadcast_timestamp': broadcast_dt,
                         'last_modified': datetime.now()

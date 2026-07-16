@@ -59,8 +59,11 @@ def get_company_mapping():
         nse_mapping = {}  # NSE code -> company name
         bse_mapping = {}  # BSE code -> company name
         company_id_mapping = {}  # symbol -> company_id
+        company_name_by_id = {}
         
         for row in result:
+            company_name_by_id[row.id] = row.name
+
             if row.nse_code:
                 nse_code = str(row.nse_code).strip()
                 nse_mapping[nse_code] = row.name
@@ -73,7 +76,7 @@ def get_company_mapping():
                 company_id_mapping[bse_code] = row.id
         
         logger.info(f"Loaded {len(nse_mapping)} NSE mappings and {len(bse_mapping)} BSE mappings")
-        return nse_mapping, bse_mapping, company_id_mapping
+        return nse_mapping, bse_mapping, company_id_mapping, company_name_by_id
         
     except Exception as e:
         logger.error(f"Error fetching company mapping: {str(e)}")
@@ -96,7 +99,7 @@ def load_bse_mapping(mapping_file):
         bse_mapping = dict(zip(df_mapping['Security Code'].astype(str), df_mapping['Issuer Name']))
         
         # Also load company IDs from database
-        nse_map, bse_map, company_id_map = get_company_mapping()
+        nse_map, bse_map, company_id_map, company_name_by_id = get_company_mapping()
         
         if nse_map and bse_map:
             # Update with database mappings if available
@@ -104,7 +107,7 @@ def load_bse_mapping(mapping_file):
             bse_mapping.update(bse_map)
         
         logger.info(f"Loaded {len(nse_mapping)} NSE mappings and {len(bse_mapping)} BSE mappings")
-        return nse_mapping, bse_mapping, company_id_map
+        return nse_mapping, bse_mapping, company_id_map, company_name_by_id
         
     except Exception as e:
         logger.error(f"Error loading BSE mapping file: {str(e)}")
@@ -116,7 +119,7 @@ def add_company_names(input_file, output_file, mapping_file):
         logger.info(f"Processing master bhavcopy file: {input_file}")
         
         # Load BSE sector mapping and company IDs
-        nse_mapping, bse_mapping, company_id_mapping = load_bse_mapping(mapping_file)
+        nse_mapping, bse_mapping, company_id_mapping, company_name_by_id = load_bse_mapping(mapping_file)
         if nse_mapping is None or bse_mapping is None:
             return False
         
@@ -146,20 +149,19 @@ def add_company_names(input_file, output_file, mapping_file):
                 company_id = None
                 
                 if exchange == 'NSE':
-                    # For NSE: try to match Security Id with Issuer Name
-                    if symbol in nse_mapping:
-                        company_name = nse_mapping[symbol]
+                    company_id = company_id_mapping.get(symbol)
+
+                    if company_id:
                         matched_nse += 1
-                    # Get company ID if available
-                    company_id = company_id_mapping.get(symbol)
-                        
+
                 elif exchange == 'BSE':
-                    # For BSE: try to match Security Code with Issuer Name
-                    if symbol in bse_mapping:
-                        company_name = bse_mapping[symbol]
-                        matched_bse += 1
-                    # Get company ID if available
                     company_id = company_id_mapping.get(symbol)
+
+                    if company_id:
+                        matched_bse += 1
+
+                if company_id:
+                    company_name = company_name_by_id.get(company_id, symbol)
                 
                 company_names.append(company_name)
                 company_ids.append(company_id)

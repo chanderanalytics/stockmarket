@@ -392,7 +392,7 @@ if (nrow(trade_summary) > 0) {
   dt[, company_id := as.character(company_id)]
   
   # Get unique company names - take the first occurrence of each company_id
-  company_names <- unique(dt[, .(company_id, company_name)], by = "company_id")
+  company_names <- dt[order(date), .SD[.N],by=company_id] [ ,.(company_id,company_name)]
   
   # Add company name to trade summary by joining with original data
   # Using allow.cartesian=TRUE as we expect some duplicates

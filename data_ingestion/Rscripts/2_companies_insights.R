@@ -77,9 +77,16 @@ tryCatch({
   cat("[DEBUG] Columns after merge:", paste(names(merged_dt), collapse=", "), "\n")
   cat("[DEBUG] Sample names after merge:", paste(head(merged_dt$name, 10), collapse=", "), "\n")
   dt_companies <- merged_dt
+  dt_companies<- dt_companies[,id:=as.character(id)]
+  
   flog.info("Mapped BSE sector/industry using BSE code with _bse suffix.")
   
-  # 2.1 Get volume data and averages
+
+# 2.1 Get volume data and averages 
+
+flog.info("Loading volume data for all companies...")
+
+# 2.1 Get volume data and averages
   query <- "
   WITH date_ranges AS (
     SELECT 
@@ -105,25 +112,27 @@ tryCatch({
     WHERE p.date >= d.year_ago  -- Only fetch data from the past year for efficiency
     GROUP BY company_id
   )
-  SELECT * FROM volume_data WHERE company_id = $1
+  SELECT * FROM volume_data
   "
   
-  # Add volume and average columns to dt_companies
-  dt_companies[, c("volume", "volume_1week_avg", "volume_1month_avg", "volume_1year_avg") := {
-    result <- dbGetQuery(con, query, params = list(id))
-    if (nrow(result) > 0) {
-      list(
-        result$volume[1],
-        result$volume_1week_avg[1],
-        result$volume_1month_avg[1],
-        result$volume_1year_avg[1]
-      )
-    } else {
-      list(NA_real_, NA_real_, NA_real_, NA_real_)
-    }
-  }, by = id]
+  flog.info("Add volume and average columns...")
+
+  volume_dt <- data.table::as.data.table(DBI::dbGetQuery(con,query))
+  volume_dt <- volume_dt[,company_id:=as.character(company_id)]
+
+  dt_companies <- merge(
+  dt_companies,
+  volume_dt, 
+  by.x = "id", 
+  by.y = "company_id", 
+  all.x=TRUE)
   
+  setnames(dt_companies,"volume.x","volume")
+  
+  print(names(dt_companies))
+  print(nrow(dt_companies))
   flog.info("Added volume data and averages for %d companies", sum(!is.na(dt_companies$volume)))
+  
 
   # 3. Data Cleaning (data.table syntax)
   #dt_companies <- dt_companies[!is.na(market_capitalization) & !is.na(sector) & !is.na(roe)]

@@ -191,8 +191,8 @@ main() {
     #durations+=("$duration")
     
     # 4. Fetch indices data
-    duration=$(run_command "Fetch indices data (10 days)" \
-        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/4.1_onetime_indices.py --days 10 --csv-file $csv_file" "4")
+    duration=$(run_command "Fetch indices data (100 days)" \
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python data_ingestion/onetime/4.1_onetime_indices.py --days 100 --csv-file $csv_file" "4")
     durations+=("$duration")
     
     # 5. Data quality check
