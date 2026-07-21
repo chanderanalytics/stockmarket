@@ -30,11 +30,10 @@ export const navGroups: NavGroup[] = [
         description: "Live market overview, movers and breadth at a glance.",
       },
       {
-        title: "Breadth",
-        href: "/breadth",
+        title: "Market Breadth",
+        href: "/market-breadth",
         icon: Gauge,
         description: "Advance/decline, market breadth and momentum indicators.",
-        badge: "soon",
       },
       {
         title: "Sectors",

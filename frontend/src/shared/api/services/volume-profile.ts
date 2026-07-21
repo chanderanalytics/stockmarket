@@ -22,6 +22,26 @@ export const volumeProfileService = {
         rank: number;
         total: number;
       }>;
-    }>("/volume-profile", { params }),
-  latestDate: () => api.get<{ date: string | null }>("/volume-profile/latest-date"),
+    }>("/api/volume-profile", { params }),
+  latestDate: () => api.get<{ date: string | null }>("/api/volume-profile/latest-date"),
+};
+
+export const priceTrendService = {
+  data: (params?: Record<string, unknown>) =>
+    api.get<{
+      level: "company";
+      periods: string[];
+      total: number;
+      rows: Array<{
+        id: string;
+        name: string;
+        sector: string;
+        industry: string;
+        industrySubGroup: string;
+        marketCap: number;
+        marketCapBucket: string;
+        [period: string]: string | number | null;
+      }>;
+    }>("/api/price-trends", { params }),
+  latestDate: () => api.get<{ date: string | null }>("/api/price-trends/latest-date"),
 };

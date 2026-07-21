@@ -8,3 +8,7 @@
 
 export * from "./common/KPIWidget";
 export * from "./market/VolumeProfileWidget";
+export * from "./market/VolumeProfileV2Widget";
+export * from "./market/PriceTrendWidget";
+export * from "./market/PriceTrendV2Widget";
+export * from "./market/MarketBreadthWidget";

@@ -3,7 +3,10 @@
 // Thin fetch-based API client. No axios dependency; works in the browser and
 // during Next.js client-side navigation. Reads an auth token from localStorage.
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+const BASE_URL =
+  process.env.NEXT_PUBLIC_FASTAPI_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8001";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -31,7 +34,16 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   const url = new URL(`${BASE_URL}${path}`, typeof window === "undefined" ? "http://localhost" : window.location.origin);
   if (opts.params) {
     Object.entries(opts.params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+      if (v === undefined || v === null || v === "") return;
+      if (Array.isArray(v)) {
+        v.forEach((item) => {
+          if (item !== undefined && item !== null && item !== "") {
+            url.searchParams.append(k, String(item));
+          }
+        });
+      } else {
+        url.searchParams.set(k, String(v));
+      }
     });
   }
 
@@ -49,9 +61,15 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   if (!res.ok) {
     let payload: unknown;
     try {
-      payload = await res.json();
+      const raw = await res.text();
+      payload = raw;
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        // keep as text
+      }
     } catch {
-      payload = await res.text();
+      payload = null;
     }
     const message =
       (payload && typeof payload === "object" && "message" in payload && (payload as any).message) ||
@@ -60,7 +78,8 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   }
 
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  const jsonPayload = await res.json();
+  return jsonPayload as T;
 }
 
 export const api = {

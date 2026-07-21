@@ -375,24 +375,32 @@ if __name__ == "__main__":
 
 from repositories.market_repository import MarketRepository
 from repositories.breadth_repository import BreadthRepository
+from repositories.breadth_analytics_repository import BreadthAnalyticsRepository
 from repositories.sector_repository import SectorRepository
 from repositories.stock_repository import StockRepository
 from repositories.signal_repository import SignalRepository
 from repositories.probability_repository import ProbabilityRepository
 from repositories.portfolio_repository import PortfolioRepository
 from repositories.volume_profile_repository import VolumeProfileRepository
+from repositories.volume_profile_v2_repository import VolumeProfileV2Repository
+from repositories.price_trend_repository import PriceTrendRepository
+from repositories.price_trend_v2_repository import PriceTrendV2Repository
 
 
 def get_repos(db: Session = Depends(get_db)):
     return {
         "market": MarketRepository(db),
         "breadth": BreadthRepository(db),
+        "breadth_analytics": BreadthAnalyticsRepository(db),
         "sector": SectorRepository(db),
         "stock": StockRepository(db),
         "signal": SignalRepository(db),
         "probability": ProbabilityRepository(db),
         "portfolio": PortfolioRepository(db),
         "volume_profile": VolumeProfileRepository(db),
+        "volume_profile_v2": VolumeProfileV2Repository(db),
+        "price_trend": PriceTrendRepository(db),
+        "price_trend_v2": PriceTrendV2Repository(db),
     }
 
 
@@ -423,6 +431,191 @@ def get_domain_pulse(repos=Depends(get_repos)):
 @app.get("/api/domain/market/breadth")
 def get_domain_breadth(repos=Depends(get_repos)):
     return repos["breadth"].compute_breadth()
+
+
+@app.get("/api/market-breadth/summary")
+def get_market_breadth_summary(
+    date: Optional[str] = Query(None),
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    horizons: List[int] = Query(default=[1, 5, 21, 63, 126, 256]),
+    signalType: str = Query("above50dma"),
+    marketCap: Optional[str] = Query(None),
+    marketCapBucket: Optional[str] = Query(None),
+    companyName: Optional[str] = Query(None),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_breadth_summary(
+        date=date, dma_periods=dmaPeriods, horizons=horizons, signal_type=signalType,
+        market_cap=marketCap, market_cap_bucket=marketCapBucket, company_name=companyName,
+    )
+
+
+@app.get("/api/market-breadth/distribution")
+def get_market_breadth_distribution(
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    marketCap: Optional[str] = Query(None),
+    marketCapBucket: Optional[str] = Query(None),
+    companyName: Optional[str] = Query(None),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_breadth_distribution(
+        dma_periods=dmaPeriods, market_cap=marketCap, market_cap_bucket=marketCapBucket, company_name=companyName,
+    )
+
+
+@app.get("/api/market-breadth/sectors")
+def get_market_breadth_sectors(
+    sector: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    horizons: List[int] = Query(default=[1, 5, 21, 63, 126, 256]),
+    signalType: str = Query("above50dma"),
+    marketCap: Optional[str] = Query(None),
+    marketCapBucket: Optional[str] = Query(None),
+    companyName: Optional[str] = Query(None),
+    sortBy: str = Query("breadthScore"),
+    sortDirection: str = Query("desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_sector_breadth(
+        sector=sector,
+        industry=industry,
+        industry_sub_group=industrySubGroup,
+        dma_periods=dmaPeriods,
+        horizons=horizons,
+        signal_type=signalType,
+        sort_by=sortBy,
+        sort_dir=sortDirection,
+        limit=limit,
+        offset=offset,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        company_name=companyName,
+    )
+
+
+@app.get("/api/market-breadth/industries")
+def get_market_breadth_industries(
+    sector: Optional[str] = Query(None),
+    industryGroup: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    horizons: List[int] = Query(default=[1, 5, 21, 63, 126, 256]),
+    signalType: str = Query("above50dma"),
+    marketCap: Optional[str] = Query(None),
+    marketCapBucket: Optional[str] = Query(None),
+    companyName: Optional[str] = Query(None),
+    sortBy: str = Query("breadthScore"),
+    sortDirection: str = Query("desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_industry_breadth(
+        sector=sector,
+        industry_group=industryGroup,
+        industry_sub_group=industrySubGroup,
+        dma_periods=dmaPeriods,
+        horizons=horizons,
+        signal_type=signalType,
+        sort_by=sortBy,
+        sort_dir=sortDirection,
+        limit=limit,
+        offset=offset,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        company_name=companyName,
+    )
+
+
+@app.get("/api/market-breadth/companies")
+def get_market_breadth_companies(
+    sector: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    horizons: List[int] = Query(default=[1, 5, 21, 63, 126, 256]),
+    signalType: str = Query("above50dma"),
+    marketCap: Optional[str] = Query(None),
+    marketCapBucket: Optional[str] = Query(None),
+    companyName: Optional[str] = Query(None),
+    sortBy: str = Query("breadthScore"),
+    sortDirection: str = Query("desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_company_breadth(
+        sector=sector,
+        industry=industry,
+        industry_sub_group=industrySubGroup,
+        dma_periods=dmaPeriods,
+        horizons=horizons,
+        signal_type=signalType,
+        sort_by=sortBy,
+        sort_dir=sortDirection,
+        limit=limit,
+        offset=offset,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        company_name=companyName,
+    )
+
+
+@app.get("/api/market-breadth/subgroups")
+def get_market_breadth_subgroups(
+    sector: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    horizons: List[int] = Query(default=[1, 5, 21, 63, 126, 256]),
+    signalType: str = Query("above50dma"),
+    marketCap: Optional[str] = Query(None),
+    marketCapBucket: Optional[str] = Query(None),
+    companyName: Optional[str] = Query(None),
+    sortBy: str = Query("breadthScore"),
+    sortDirection: str = Query("desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_subgroup_breadth(
+        sector=sector,
+        industry=industry,
+        industry_sub_group=industrySubGroup,
+        dma_periods=dmaPeriods,
+        horizons=horizons,
+        signal_type=signalType,
+        sort_by=sortBy,
+        sort_dir=sortDirection,
+        limit=limit,
+        offset=offset,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        company_name=companyName,
+    )
+
+
+@app.get("/api/market-breadth/history")
+def get_market_breadth_history(
+    period: str = Query("1y", description="1m | 3m | 6m | 1y"),
+    dmaPeriods: List[int] = Query(default=[20, 50, 200]),
+    repos=Depends(get_repos),
+):
+    return repos["breadth_analytics"].get_breadth_history(period=period, dma_periods=dmaPeriods)
+
+
+@app.post("/api/market-breadth/refresh-cache")
+def refresh_market_breadth_cache(
+    dmaPeriods: List[int] = Query(default=[20, 50, 100, 200]),
+    horizons: List[int] = Query(default=[1, 5, 21, 63, 126, 256]),
+    repos=Depends(get_repos),
+):
+    results = repos["breadth_analytics"].refresh_cache(dma_periods=dmaPeriods, horizons=horizons)
+    return {"status": "ok", "companies": len(results), "dmaPeriods": dmaPeriods, "horizons": horizons}
 
 
 @app.get("/api/domain/market/sectors")
@@ -554,5 +747,164 @@ def get_domain_volume_profile(
 @app.get("/api/volume-profile/latest-date")
 def get_latest_volume_profile_date(db: Session = Depends(get_db), repos=Depends(get_repos)):
     table = repos["volume_profile"].table
+    result = db.query(table.c.last_modified).order_by(table.c.last_modified.desc()).limit(1).first()
+    return {"date": result[0].isoformat() if result and result[0] else None}
+
+
+@app.get("/api/volume-profile-v2")
+def get_volume_profile_v2(
+    date: Optional[str] = Query(None, description="Snapshot date (last_modified)"),
+    hierarchyLevel: Optional[str] = Query(None, description="sector | industry | industrySubGroup | company"),
+    level: Optional[str] = Query(None, description="Alias for hierarchyLevel (back-compat)"),
+    parent: Optional[str] = Query(None, description="Drill-down parent (ancestor name)"),
+    sector: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    marketCap: Optional[str] = Query(None, description="large | mid | small"),
+    marketCapBucket: Optional[str] = Query(None, description="Exact cap_class value"),
+    rank: Optional[int] = Query(None, description="Reserved (rank is computed server-side)"),
+    company: Optional[str] = Query(None, description="nse_code or company_id"),
+    companyName: Optional[str] = Query(None, description="Case-insensitive prefix match on company name"),
+    sortMetric: str = Query("relative1Y", description="volume | avgVol1W | avgVol1M | avgVol1Y | relative1W | relative1M | relative1Y"),
+    sortDirection: str = Query("desc", description="asc | desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    """Volume Profiling V2 — Relative Volume.
+
+    Compares today's volume against the entity's own historical averages:
+      relative1Week  = todayVolume / average1WeekVolume
+      relative1Month = todayVolume / average1MonthVolume
+      relative1Year  = todayVolume / average1YearVolume
+
+    Drill-down hierarchy: Sector -> Industry -> IndustrySubGroup -> Company.
+    Filtering, aggregation, sorting and pagination are performed in SQL.
+    """
+    result = repos["volume_profile_v2"].get_volume_profile(
+        hierarchy_level=hierarchyLevel or level or "sector",
+        parent=parent,
+        sector=sector,
+        industry=industry,
+        industry_sub_group=industrySubGroup,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        company=company,
+        company_name=companyName,
+        date=date,
+        sort_metric=sortMetric,
+        sort_direction=sortDirection,
+        limit=limit,
+        offset=offset,
+    )
+    return result
+
+
+@app.get("/api/volume-profile-v2/latest-date")
+def get_latest_volume_profile_v2_date(db: Session = Depends(get_db), repos=Depends(get_repos)):
+    table = repos["volume_profile_v2"].table
+    result = db.query(table.c.last_modified).order_by(table.c.last_modified.desc()).limit(1).first()
+    return {"date": result[0].isoformat() if result and result[0] else None}
+
+
+@app.get("/api/price-trends")
+def get_price_trends(
+    selectedPeriods: List[str] = Query(default=[]),
+    sector: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    marketCap: Optional[str] = Query(None, description="large | mid | small"),
+    marketCapBucket: Optional[str] = Query(None, description="Exact cap_class value"),
+    rank: Optional[str] = Query(None, description="Reserved (rank is computed server-side)"),
+    company: Optional[str] = Query(None, description="nse_code or company_id"),
+    companyName: Optional[str] = Query(None, description="Case-insensitive prefix match on company name"),
+    date: Optional[str] = Query(None, description="Snapshot date (last_modified)"),
+    sortMetric: str = Query("252d", description="1d | 2d | 3d | 4d | 5d | 21d | 63d | 126d | 252d | 504d | 756d | 1260d | 2520d | name | marketCap"),
+    sortDirection: str = Query("desc", description="asc | desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    """Price Trends.
+
+    Returns company price performance across selected lookback periods.
+    Filtering, sorting and pagination are performed in SQL.
+    """
+    result = repos["price_trend"].get_price_trends(
+        selected_periods=selectedPeriods,
+        sector=sector,
+        industry=industry,
+        industry_sub_group=industrySubGroup,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        rank=rank,
+        company=company,
+        company_name=companyName,
+        date=date,
+        sort_metric=sortMetric,
+        sort_direction=sortDirection,
+        limit=limit,
+        offset=offset,
+    )
+    return result
+
+
+@app.get("/api/price-trends/latest-date")
+def get_latest_price_trends_date(db: Session = Depends(get_db), repos=Depends(get_repos)):
+    table = repos["price_trend"].table
+    result = db.query(table.c.last_modified).order_by(table.c.last_modified.desc()).limit(1).first()
+    return {"date": result[0].isoformat() if result and result[0] else None}
+
+
+@app.get("/api/price-trends-v2")
+def get_price_trends_v2(
+    selectedPeriods: List[str] = Query(default=[]),
+    sector: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    industrySubGroup: Optional[str] = Query(None),
+    marketCap: Optional[str] = Query(None, description="large | mid | small"),
+    marketCapBucket: Optional[str] = Query(None, description="Exact cap_class value"),
+    rank: Optional[str] = Query(None, description="Reserved (rank is computed server-side)"),
+    company: Optional[str] = Query(None, description="nse_code or company_id"),
+    companyName: Optional[str] = Query(None, description="Case-insensitive prefix match on company name"),
+    date: Optional[str] = Query(None, description="Snapshot date (last_modified)"),
+    hierarchyLevel: Optional[str] = Query("company", description="sector | industry | industrySubGroup | company"),
+    level: Optional[str] = Query(None, description="Alias for hierarchyLevel"),
+    sortMetric: str = Query("252d", description="1d | 2d | 3d | 4d | 5d | 21d | 63d | 126d | 252d | 504d | 756d | 1260d | 2520d | name | marketCap | weightedMarketCap"),
+    sortDirection: str = Query("desc", description="asc | desc"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    """Price Trends V2 — Market-Cap Weighted.
+
+    At sector/industry/sub-group level, returns are market-cap weighted:
+      weighted_return = SUM(return * market_cap) / SUM(market_cap)
+
+    At company level, individual company returns are returned unchanged.
+    """
+    result = repos["price_trend_v2"].get_price_trends(
+        selected_periods=selectedPeriods,
+        sector=sector,
+        industry=industry,
+        industry_sub_group=industrySubGroup,
+        market_cap=marketCap,
+        market_cap_bucket=marketCapBucket,
+        rank=rank,
+        company=company,
+        company_name=companyName,
+        date=date,
+        hierarchy_level=hierarchyLevel or level or "company",
+        sort_metric=sortMetric,
+        sort_direction=sortDirection,
+        limit=limit,
+        offset=offset,
+    )
+    return result
+
+
+@app.get("/api/price-trends-v2/latest-date")
+def get_latest_price_trends_v2_date(db: Session = Depends(get_db), repos=Depends(get_repos)):
+    table = repos["price_trend_v2"].table
     result = db.query(table.c.last_modified).order_by(table.c.last_modified.desc()).limit(1).first()
     return {"date": result[0].isoformat() if result and result[0] else None}

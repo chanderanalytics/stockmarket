@@ -269,6 +269,12 @@ main() {
 
 # 19. daily price and volume table
     Rscript /Users/chanderbhushan/stockmkt/data_ingestion/Rscripts/5_create_prices_bhavcopy3.R --delete-date "2018-12-04"
+
+    # 20. Refresh breadth signals cache
+    duration=$(run_command "Refresh breadth signals cache" \
+        "source $VENV_PATH && PYTHONPATH=$PYTHONPATH python refresh_breadth_signals.py" "20")
+    durations+=("$duration")
+
     # Get final database counts
     read companies_after prices_after companies_powerbi_after <<< $(get_db_counts)
     log_message "Final database counts - Companies: $companies_after, Prices: $prices_after, Companies PowerBI: $companies_powerbi_after"
@@ -315,6 +321,8 @@ main() {
     log_message "✓ 16. Run momentum trading model (${durations[19]} min)"
     log_message "✓ 17. Run trade tracker analysis (${durations[17]} min)"
     log_message "✓ 18. Save trade analysis to database (${durations[18]} min)"
+    log_message "✓ 20. Refresh breadth signals cache (${durations[20]} min)"
+    log_message "✓ 20. Refresh breadth signals cache (${durations[20]} min)"
     # Check for errors in log
     if grep -q "ERROR\|Failed\|Error" "$log_file"; then
         log_message "⚠️  Warnings or errors found during run! Check log file for details."

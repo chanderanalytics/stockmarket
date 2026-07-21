@@ -66,6 +66,7 @@ function isStackedBarData(data: unknown): data is StackedBarChartData {
   return typeof data === "object" && data !== null && "series" in data && "categories" in data;
 }
 
+
 function themeColors(): { axis: string; split: string } {
   if (typeof document === "undefined") return { axis: "#6b7280", split: "rgba(0,0,0,0.08)" };
   const isDark = document.documentElement.classList.contains("dark");
@@ -84,6 +85,24 @@ function buildStackedBarOption(
   const meta = data.meta ?? [];
   const { axis, split } = themeColors();
 
+  const seriesNameToField: Record<string, string> = (options.seriesNameToField as Record<string, string>) ?? {
+    "Today's Volume": "volume",
+    "Average Volume (1 Week)": "avgVol1W",
+    "Average Volume (1 Month)": "avgVol1M",
+    "Average Volume (1 Year)": "avgVol1Y",
+    "Relative (1 Week)": "relative1W",
+    "Relative (1 Month)": "relative1M",
+    "Relative (1 Year)": "relative1Y",
+  };
+
+  const xAxisFormatter = options.xAxisFormatter as ((v: number) => string) | undefined;
+
+  const baselineValue = typeof options.baselineValue === "number" ? options.baselineValue : undefined;
+
+  const labelFormatter = typeof options.labelFormatter === "function" ? (options.labelFormatter as ((v: number) => string)) : undefined;
+
+  const showLabels = percent || Boolean(labelFormatter);
+
   // For a 100% stacked bar we normalise each row's values to sum to 100.
   // (This echarts build does not support stackStrategy: "percentage".)
   const rowTotals: number[] = percent
@@ -97,6 +116,25 @@ function buildStackedBarOption(
     const seriesData = percent
       ? raw.map((v, i) => (rowTotals[i] ? (Number(v) / rowTotals[i]) * 100 : 0))
       : raw;
+    const labelOption = showLabels
+      ? {
+          show: true,
+          position: (percent ? "inside" : "insideLeft") as "inside" | "insideLeft",
+          formatter: (params: unknown) => {
+            const rawValue = (params as { value?: number })?.value;
+            const v = Number(rawValue ?? 0);
+            if (percent) {
+              const rounded = Math.round(v);
+              return rounded <= 0 ? "" : `${rounded}%`;
+            }
+            if (labelFormatter) return labelFormatter(v);
+            return "";
+          },
+          color: percent ? "#ffffff" : "#000000",
+          fontWeight: percent ? "normal" : "bold",
+          fontSize: 10,
+        }
+      : { show: false };
     return {
       name: s.name ?? s.key,
       type: "bar" as const,
@@ -106,21 +144,15 @@ function buildStackedBarOption(
       large: true,
       largeThreshold: 400,
       emphasis: { focus: "series" as const },
-      label:
-        percent
-          ? {
-              show: true,
-              position: "inside" as const,
-              formatter: (params: unknown) => {
-                const v = Math.round(Number((params as { value?: number }).value ?? 0));
-                return v <= 0 ? "" : `${v}%`;
-              },
-              color: "#ffffff",
-              fontSize: 10,
-            }
-          : { show: false },
+      label: labelOption as any,
     };
   });
+
+  const xAxisLabelFormatter = percent
+    ? ((v: number) => `${v}%`)
+    : xAxisFormatter
+      ? ((v: number) => xAxisFormatter(v))
+      : ((v: number) => formatNum(v));
 
   return {
     animation: false,
@@ -139,22 +171,15 @@ function buildStackedBarOption(
           ? `<div style="font-weight:600;margin-bottom:4px">${escapeHtml(row.name)}</div>` +
             `<div style="color:#94a3b8;margin-bottom:6px">${escapeHtml(row.sector)} · ${escapeHtml(row.industry)}</div>`
           : "";
-        // Series name -> row field, so the tooltip shows the ACTUAL volume
-        // (formatted in Lacs/Cr) rather than the normalised percentage.
-        const SERIES_KEY: Record<string, string> = {
-          "Today's Volume": "volume",
-          "Average Volume (1 Week)": "avgVol1W",
-          "Average Volume (1 Month)": "avgVol1M",
-          "Average Volume (1 Year)": "avgVol1Y",
-        };
         const lines = arr
           .map((p) => {
             const item = p as { marker?: string; seriesName?: string };
-            const key = SERIES_KEY[item.seriesName ?? ""];
-            const actual = row && key ? Number(row[key]) : 0;
+            const key = seriesNameToField[item.seriesName ?? ""];
+            const actual = row && key ? Number(row[key]) : null;
+            const display = actual != null && Number.isFinite(actual) ? formatNum(actual) : "—";
             return `<div style="display:flex;justify-content:space-between;gap:20px;line-height:1.6">` +
               `<span>${item.marker ?? ""} ${escapeHtml(item.seriesName)}</span>` +
-              `<span style="font-variant-numeric:tabular-nums">${formatNum(actual)}</span></div>`;
+              `<span style="font-variant-numeric:tabular-nums">${display}</span></div>`;
           })
           .join("");
         const extra = row && row.companyCount != null
@@ -166,8 +191,9 @@ function buildStackedBarOption(
     xAxis: {
       type: "value",
       max: percent ? 100 : undefined,
-      axisLabel: { color: axis, formatter: (v: number) => (percent ? `${v}%` : formatNum(v)) },
+      axisLabel: { color: axis, formatter: xAxisLabelFormatter },
       splitLine: { lineStyle: { color: split } },
+      ...(baselineValue != null ? { markLine: { silent: true, symbol: "none", lineStyle: { color: split, type: "dashed" as const }, data: [{ xAxis: baselineValue }] } } : {}),
     },
     yAxis: {
       type: "category",
@@ -205,7 +231,17 @@ function EChartView({
     const cleanups: (() => void)[] = [];
     if (onClickRef.current) {
       inst.on("click", (params: any) => {
-        if (typeof params?.name === "string") onClickRef.current!(params.name);
+        if (typeof params?.name === "string") {
+          onClickRef.current!(params.name);
+          return;
+        }
+        // Custom-series (heatmap/value bars): params.data = [companyIndex, ...]
+        const ci = params?.data?.[0];
+        if (typeof ci === "number") {
+          const cats = (option as any)?.yAxis?.data ?? [];
+          const name = cats[ci];
+          if (typeof name === "string") onClickRef.current!(name);
+        }
       });
       const zr = inst.getZr();
       const onZrClick = (e: any) => {
@@ -277,6 +313,9 @@ export class EChartsAdapter {
         />
       );
     }
+
+
+
     return <Placeholder primitive={primitive.type} library={this.library} />;
   }
 }
