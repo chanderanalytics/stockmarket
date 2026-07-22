@@ -385,6 +385,7 @@ from repositories.volume_profile_repository import VolumeProfileRepository
 from repositories.volume_profile_v2_repository import VolumeProfileV2Repository
 from repositories.price_trend_repository import PriceTrendRepository
 from repositories.price_trend_v2_repository import PriceTrendV2Repository
+from repositories.index_repository import IndexRepository
 
 
 def get_repos(db: Session = Depends(get_db)):
@@ -401,6 +402,7 @@ def get_repos(db: Session = Depends(get_db)):
         "volume_profile_v2": VolumeProfileV2Repository(db),
         "price_trend": PriceTrendRepository(db),
         "price_trend_v2": PriceTrendV2Repository(db),
+        "index": IndexRepository(db),
     }
 
 
@@ -676,6 +678,49 @@ def get_market_movers(repos=Depends(get_repos)):
 @app.get("/api/market/status")
 def get_market_status():
     return {"open": True, "asOf": datetime.utcnow().isoformat()}
+
+
+@app.get("/api/indices/features")
+def get_indices_features(
+    region: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    repos=Depends(get_repos),
+):
+    return repos["index"].get_features_snapshot(region=region, limit=limit, offset=offset)
+
+
+@app.get("/api/indices/features/latest-date")
+def get_indices_features_latest_date(db: Session = Depends(get_db), repos=Depends(get_repos)):
+    return {"date": repos["index"].get_latest_snapshot_date()}
+
+
+@app.get("/api/indices/price-history")
+def get_index_price_history(
+    name: Optional[str] = Query(None),
+    ticker: Optional[str] = Query(None),
+    days: int = Query(252, ge=1, le=2000),
+    repos=Depends(get_repos),
+):
+    if not name and not ticker:
+        raise HTTPException(status_code=400, detail="name or ticker is required")
+    return repos["index"].get_index_price_history(name=name, ticker=ticker, days=days)
+
+
+@app.get("/api/indices/regions")
+def get_index_regions(db: Session = Depends(get_db), repos=Depends(get_repos)):
+    table = repos["index"].snapshot_table
+    rows = db.query(table.c.region).distinct().filter(table.c.region.isnot(None)).order_by(table.c.region).all()
+    return [r[0] for r in rows]
+
+
+@app.get("/api/indices/regional-strength")
+def get_regional_strength(
+    period: str = Query("21d"),
+    repos=Depends(get_repos),
+):
+    return repos["index"].get_regional_strength(period=period)
+
 print("ROUTES LOADED:", len(app.routes))
 
 

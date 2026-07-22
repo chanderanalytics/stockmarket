@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Activity, Filter, LineChart, Wallet, BookOpen, Settings, Gauge, Layers } from "lucide-react";
+import { Activity, Filter, LineChart, Wallet, BookOpen, Settings, Gauge, Layers, BarChart3 } from "lucide-react";
 
 // Data-driven navigation (Milestone 1, Task 5).
 // Adding a new page requires ONLY adding an entry here — the sidebar, top bar,
@@ -34,6 +34,12 @@ export const navGroups: NavGroup[] = [
         href: "/market-breadth",
         icon: Gauge,
         description: "Advance/decline, market breadth and momentum indicators.",
+      },
+      {
+        title: "Indices",
+        href: "/indices",
+        icon: BarChart3,
+        description: "Index returns, heatmaps and time series.",
       },
       {
         title: "Sectors",

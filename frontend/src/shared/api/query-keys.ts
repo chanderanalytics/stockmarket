@@ -66,6 +66,13 @@ export const queryKeys = {
     subgroups: (params?: Record<string, unknown>) => ["market-breadth", "subgroups", params ?? {}] as const,
     history: (params?: Record<string, unknown>) => ["market-breadth", "history", params ?? {}] as const,
   },
+  indices: {
+    features: (params?: Record<string, unknown>) => ["indices", "features", params ?? {}] as const,
+    latestDate: () => ["indices", "features", "latest-date"] as const,
+    priceHistory: (params?: Record<string, unknown>) => ["indices", "price-history", params ?? {}] as const,
+    regions: () => ["indices", "regions"] as const,
+    regionalStrength: (params?: Record<string, unknown>) => ["indices", "regional-strength", params ?? {}] as const,
+  },
   auth: {
     me: () => ["auth", "me"] as const,
   },

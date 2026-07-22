@@ -5,3 +5,6 @@ export * from "./watchlist";
 export * from "./screener";
 export * from "./portfolio";
 export * from "./auth";
+export * from "./volume-profile";
+export * from "./price-trends";
+export * from "./indices";
