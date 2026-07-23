@@ -70,47 +70,25 @@ export function ReturnsHeatmap({
     return map;
   }, [rows, periods]);
 
-  function heatmapColor(value: number, min: number, max: number): string {
-    const stops = ["#dc2626", "#fca5a5", "#fef2f2", "#fef9c3", "#86efac", "#166534"];
-    if (max <= min) {
-      const mid = Math.floor(stops.length / 2);
-      return stops[mid];
-    }
-    const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
-    const scaled = t * (stops.length - 1);
-    const idx = Math.min(Math.floor(scaled), stops.length - 2);
-    const frac = scaled - idx;
-    const c1 = hexToRgb(stops[idx]);
-    const c2 = hexToRgb(stops[idx + 1]);
-    if (!c1 || !c2) return stops[idx];
-    const r = Math.round(c1.r + (c2.r - c1.r) * frac);
-    const g = Math.round(c1.g + (c2.g - c1.g) * frac);
-    const b = Math.round(c1.b + (c2.b - c1.b) * frac);
-    return `rgb(${r},${g},${b})`;
-  }
+  const chartData = React.useMemo(() => {
+    const seriesList: any[] = [];
+    const visualMaps: any[] = [];
 
-  function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-    const m = hex.replace("#", "").match(/^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-    if (!m) return null;
-    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-  }
-
-  const series = React.useMemo(() => {
-    const data: { value: [number, number, number]; itemStyle: { color: string } }[] = [];
-    sortedRows.forEach((row, rowIndex) => {
-      periods.forEach((period, colIndex) => {
+    periods.forEach((period, colIndex) => {
+      const data: { value: [number, number, number]; itemStyle?: { color: string } }[] = [];
+      sortedRows.forEach((row, rowIndex) => {
         const raw = row[period];
         const value = raw == null ? raw : Number(raw);
         if (value === null || value === undefined || !Number.isFinite(value)) return;
-        const range = periodMinMax.get(period) ?? { min: -5, max: 5 };
         data.push({
           value: [colIndex, rowIndex, Number(value.toFixed(1))],
-          itemStyle: { color: heatmapColor(value, range.min, range.max) },
         });
       });
-    });
-    return [
-      {
+
+      const range = periodMinMax.get(period) ?? { min: -5, max: 5 };
+      const stops = ["#dc2626", "#fca5a5", "#fef2f2", "#fef9c3", "#86efac", "#166534"];
+
+      seriesList.push({
         type: "heatmap" as const,
         data,
         label: {
@@ -130,8 +108,20 @@ export function ReturnsHeatmap({
           borderColor: "#fff",
           borderWidth: 1,
         },
-      },
-    ];
+      });
+
+      visualMaps.push({
+        min: range.min,
+        max: range.max,
+        inRange: {
+          color: stops,
+        },
+        show: false,
+        seriesIndex: colIndex,
+      });
+    });
+
+    return { series: seriesList, visualMaps };
   }, [sortedRows, periods, periodMinMax]);
 
   React.useEffect(() => {
@@ -184,6 +174,8 @@ export function ReturnsHeatmap({
     return undefined;
   }, [periods, sortKey, sortDir, onSortChange, onSortDirToggle]);
 
+  const { series: seriesList, visualMaps } = chartData;
+
   React.useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -232,10 +224,11 @@ export function ReturnsHeatmap({
         data: yAxis,
         splitArea: { show: true },
       },
-      series: series as any,
+      visualMap: visualMaps,
+      series: seriesList,
     };
     chart.setOption(option, true);
-  }, [series, yAxis, periodLabels]);
+  }, [chartData, yAxis, periodLabels]);
 
   React.useEffect(() => {
     const chart = chartRef.current;
