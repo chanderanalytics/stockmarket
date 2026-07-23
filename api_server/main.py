@@ -953,3 +953,265 @@ def get_latest_price_trends_v2_date(db: Session = Depends(get_db), repos=Depends
     table = repos["price_trend_v2"].table
     result = db.query(table.c.last_modified).order_by(table.c.last_modified.desc()).limit(1).first()
     return {"date": result[0].isoformat() if result and result[0] else None}
+
+
+@app.get("/api/performance/summary")
+def get_performance_summary(db: Session = Depends(get_db)):
+    from sqlalchemy import text
+
+    company_stats = db.execute(text("""
+        SELECT
+            COUNT(*) as total_companies,
+            AVG(win_rate) as avg_win_rate,
+            AVG(avg_pnl) as avg_pnl,
+            AVG(sharpe_ratio) as avg_sharpe,
+            AVG(max_drawdown) as avg_max_drawdown,
+            SUM(total_trades) as total_trades,
+            AVG(profit_factor) as avg_profit_factor
+        FROM performance_metrics
+    """)).fetchone()
+
+    trade_stats = db.execute(text("""
+        SELECT
+            COUNT(*) as total_trades,
+            AVG(pnl_pct) as avg_pnl_pct,
+            COUNT(*) FILTER (WHERE status = 'WIN') as wins,
+            COUNT(*) FILTER (WHERE status = 'LOSS') as losses,
+            COUNT(*) FILTER (WHERE status = 'OPEN') as open_trades,
+            AVG(days_held) as avg_days_held
+        FROM trade_details
+    """)).fetchone()
+
+    return {
+        "total_companies": int(company_stats.total_companies or 0),
+        "total_trades": int(trade_stats.total_trades or 0),
+        "win_rate": round(float(company_stats.avg_win_rate or 0), 2),
+        "avg_pnl": round(float(company_stats.avg_pnl or 0), 2),
+        "avg_sharpe": round(float(company_stats.avg_sharpe or 0), 2),
+        "avg_max_drawdown": round(float(company_stats.avg_max_drawdown or 0), 2),
+        "profit_factor": round(float(company_stats.avg_profit_factor or 0), 2),
+        "wins": int(trade_stats.wins or 0),
+        "losses": int(trade_stats.losses or 0),
+        "open_trades": int(trade_stats.open_trades or 0),
+        "avg_days_held": round(float(trade_stats.avg_days_held or 0), 2),
+    }
+
+
+@app.get("/api/performance/companies")
+def get_performance_companies(
+    search: Optional[str] = Query(None, description="Search by company name"),
+    status: Optional[str] = Query(None, description="Filter by trade status: WIN, LOSS, OPEN"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    from sqlalchemy import text
+
+    base_query = """
+        SELECT
+            pm.company_id,
+            pm.company_name,
+            pm.total_trades,
+            pm.winning_trades,
+            pm.losing_trades,
+            pm.open_trades,
+            pm.win_rate,
+            pm.avg_pnl,
+            pm.avg_win,
+            pm.avg_loss,
+            pm.win_loss_ratio,
+            pm.profit_factor,
+            pm.max_drawdown,
+            pm.recovery_factor,
+            pm.sharpe_ratio,
+            pm.sortino_ratio,
+            pm.best_trade,
+            pm.worst_trade,
+            pm.avg_days_held
+        FROM performance_metrics pm
+    """
+
+    count_query = "SELECT COUNT(*) FROM performance_metrics"
+
+    params = {}
+
+    if search:
+        base_query += " WHERE pm.company_name ILIKE :search"
+        count_query = "SELECT COUNT(*) FROM performance_metrics WHERE company_name ILIKE :search"
+        import string
+        search_param = f"%{search}%"
+        params["search"] = search_param
+
+    if status:
+        status_condition = ""
+        if search:
+            status_condition = " AND EXISTS (SELECT 1 FROM trade_details td WHERE td.company_id = pm.company_id AND td.status = :status)"
+        else:
+            status_condition = " WHERE EXISTS (SELECT 1 FROM trade_details td WHERE td.company_id = pm.company_id AND td.status = :status)"
+        base_query += status_condition
+        count_query += status_condition
+        params["status"] = status.upper()
+
+    base_query += """
+        ORDER BY pm.avg_pnl DESC NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """
+
+    rows = db.execute(text(base_query), {**params, "limit": limit, "offset": offset}).fetchall()
+    total = db.execute(text(count_query), params).scalar()
+
+    results = []
+    for row in rows:
+        results.append({
+            "company_id": row.company_id,
+            "company_name": row.company_name,
+            "total_trades": row.total_trades,
+            "winning_trades": row.winning_trades,
+            "losing_trades": row.losing_trades,
+            "open_trades": row.open_trades,
+            "win_rate": float(row.win_rate or 0),
+            "avg_pnl": float(row.avg_pnl or 0),
+            "avg_win": float(row.avg_win or 0),
+            "avg_loss": float(row.avg_loss or 0),
+            "win_loss_ratio": float(row.win_loss_ratio or 0),
+            "profit_factor": float(row.profit_factor or 0),
+            "max_drawdown": float(row.max_drawdown or 0),
+            "recovery_factor": float(row.recovery_factor or 0),
+            "sharpe_ratio": float(row.sharpe_ratio or 0),
+            "sortino_ratio": float(row.sortino_ratio or 0),
+            "best_trade": float(row.best_trade or 0),
+            "worst_trade": float(row.worst_trade or 0),
+            "avg_days_held": float(row.avg_days_held or 0),
+        })
+
+    return {
+        "rows": results,
+        "total": int(total or 0),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@app.get("/api/performance/trades")
+def get_performance_trades(
+    company_id: Optional[int] = Query(None, description="Filter by company ID"),
+    company_name: Optional[str] = Query(None, description="Search by company name"),
+    status: Optional[str] = Query(None, description="Filter by status: WIN, LOSS, OPEN"),
+    entry_date_from: Optional[date] = Query(None),
+    entry_date_to: Optional[date] = Query(None),
+    exit_date_from: Optional[date] = Query(None),
+    exit_date_to: Optional[date] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    from sqlalchemy import text
+
+    query = """
+        SELECT
+            company_name,
+            company_id,
+            entry_date,
+            entry_price,
+            entry_stop_loss,
+            exit_date,
+            exit_price,
+            exit_stop_loss,
+            pnl_pct,
+            days_held,
+            status,
+            day_return,
+            annualized_return,
+            AbsolutePL,
+            AbsolutePL_cum,
+            PercCumulativePL,
+            high_water_mark,
+            max_drawdown,
+            price_range_pct,
+            running_max,
+            drawdown
+        FROM trade_details
+        WHERE 1=1
+    """
+
+    count_query = "SELECT COUNT(*) FROM trade_details WHERE 1=1"
+    params = {}
+
+    if company_id:
+        query += " AND company_id = :company_id"
+        count_query += " AND company_id = :company_id"
+        params["company_id"] = company_id
+
+    if company_name:
+        query += " AND company_name ILIKE :company_name"
+        count_query += " AND company_name ILIKE :company_name"
+        params["company_name"] = f"%{company_name}%"
+
+    if status:
+        query += " AND status = :status"
+        count_query += " AND status = :status"
+        params["status"] = status.upper()
+
+    if entry_date_from:
+        query += " AND entry_date >= :entry_date_from"
+        count_query += " AND entry_date >= :entry_date_from"
+        params["entry_date_from"] = entry_date_from
+
+    if entry_date_to:
+        query += " AND entry_date <= :entry_date_to"
+        count_query += " AND entry_date <= :entry_date_to"
+        params["entry_date_to"] = entry_date_to
+
+    if exit_date_from:
+        query += " AND exit_date >= :exit_date_from"
+        count_query += " AND exit_date >= :exit_date_from"
+        params["exit_date_from"] = exit_date_from
+
+    if exit_date_to:
+        query += " AND exit_date <= :exit_date_to"
+        count_query += " AND exit_date <= :exit_date_to"
+        params["exit_date_to"] = exit_date_to
+
+    query += """
+        ORDER BY entry_date DESC NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """
+
+    rows = db.execute(text(query), {**params, "limit": limit, "offset": offset}).fetchall()
+    total = db.execute(text(count_query), params).scalar()
+
+    results = []
+    for row in rows:
+        results.append({
+            "company_name": row.company_name,
+            "company_id": row.company_id,
+            "entry_date": row.entry_date.isoformat() if row.entry_date else None,
+            "entry_price": float(row.entry_price or 0),
+            "entry_stop_loss": float(row.entry_stop_loss) if row.entry_stop_loss is not None else None,
+            "exit_date": row.exit_date.isoformat() if row.exit_date else None,
+            "exit_price": float(row.exit_price) if row.exit_price is not None else None,
+            "exit_stop_loss": float(row.exit_stop_loss) if row.exit_stop_loss is not None else None,
+            "pnl_pct": float(row.pnl_pct or 0),
+            "days_held": row.days_held,
+            "status": row.status,
+            "day_return": float(row.day_return or 0),
+            "annualized_return": float(row.annualized_return or 0),
+            "AbsolutePL": float(row.AbsolutePL) if row.AbsolutePL is not None else None,
+            "AbsolutePL_cum": float(row.AbsolutePL_cum) if row.AbsolutePL_cum is not None else None,
+            "PercCumulativePL": float(row.PercCumulativePL) if row.PercCumulativePL is not None else None,
+            "high_water_mark": float(row.high_water_mark) if row.high_water_mark is not None else None,
+            "max_drawdown": float(row.max_drawdown or 0),
+            "price_range_pct": float(row.price_range_pct or 0),
+            "running_max": float(row.running_max or 0),
+            "drawdown": float(row.drawdown or 0),
+        })
+
+    return {
+        "rows": results,
+        "total": int(total or 0),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+print("ROUTES LOADED:", len(app.routes))

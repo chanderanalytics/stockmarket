@@ -116,7 +116,8 @@ class IndexRepository:
 
     def get_regional_strength(self, period: str = "21d") -> Dict[str, Any]:
         c = self.snapshot_table.c
-        col = getattr(c, period, None)
+        column_name = f"return_{period}" if not period.startswith("return_") else period
+        col = getattr(c, column_name, None)
         if col is None:
             return {"rows": [], "period": period}
 

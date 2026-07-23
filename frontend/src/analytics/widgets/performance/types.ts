@@ -42,6 +42,10 @@ export interface TradePerformance {
   price_range_pct: number;
   running_max: number;
   drawdown: number;
+  entry_trade_summary?: string | null;
+  entry_status?: string | null;
+  exit_trade_summary?: string | null;
+  exit_status?: string | null;
 }
 
 export interface PerformanceSummary {
@@ -56,7 +60,7 @@ export interface PerformanceSummary {
 
 export interface PerformanceFilters {
   dateRange: "1M" | "3M" | "6M" | "1Y" | "ALL";
-  status: "ALL" | "OPEN" | "CLOSED";
+  status: "ALL" | "WIN" | "LOSS" | "OPEN";
   companyId?: number;
   companyName?: string;
 }
