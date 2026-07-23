@@ -42,7 +42,6 @@ export function PriceTrendWidget() {
   const [marketCap, setMarketCap] = React.useState<PriceTrendMarketCap>("");
   const [marketCapBucket, setMarketCapBucket] = React.useState<PriceTrendMarketCapBucket>("");
   const [limit, setLimit] = React.useState(50);
-  const [expanded, setExpanded] = React.useState(false);
   const [filtersExpanded, setFiltersExpanded] = React.useState(false);
   const [companyName, setCompanyName] = React.useState("");
   const [selectedPeriods, setSelectedPeriods] = React.useState<PriceTrendPeriod[]>(getDefaultPeriods());
@@ -61,7 +60,7 @@ export function PriceTrendWidget() {
     selectedPeriods,
     sortMetric,
     sortDirection: sortDir,
-    limit: expanded ? Math.max(limit, 500) : limit,
+    limit,
   });
 
   // Option lists for the Sector / Industry / Sub-Group dropdowns.
@@ -163,13 +162,11 @@ export function PriceTrendWidget() {
           <PriceTrendToolbar
             sortMetric={sortMetric}
             sortDir={sortDir}
-            expanded={expanded}
             fullscreen={fullscreen}
             refreshing={isRefreshing}
             selectedPeriods={selectedPeriods}
             onSortChange={setSortMetric}
             onSortDirToggle={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-            onExpandToggle={() => setExpanded((v) => !v)}
             onFullscreenToggle={() => setFullscreen((v) => !v)}
             onExport={handleExport}
             onRefresh={() => query.refetch()}

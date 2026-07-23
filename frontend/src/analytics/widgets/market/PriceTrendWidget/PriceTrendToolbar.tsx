@@ -26,13 +26,11 @@ import { getDefaultPeriods } from "./PriceTrend.utils";
 interface PriceTrendToolbarProps {
   sortMetric: PriceTrendSortMetric;
   sortDir: PriceTrendSortDir;
-  expanded: boolean;
   fullscreen: boolean;
   refreshing: boolean;
   selectedPeriods: PriceTrendPeriod[];
   onSortChange: (metric: PriceTrendSortMetric) => void;
   onSortDirToggle: () => void;
-  onExpandToggle: () => void;
   onFullscreenToggle: () => void;
   onExport: () => void;
   onRefresh: () => void;
@@ -55,13 +53,11 @@ const ALL_PERIODS: PriceTrendPeriod[] = [
 export function PriceTrendToolbar({
   sortMetric,
   sortDir,
-  expanded,
   fullscreen,
   refreshing,
   selectedPeriods,
   onSortChange,
   onSortDirToggle,
-  onExpandToggle,
   onFullscreenToggle,
   onExport,
   onRefresh,
@@ -186,30 +182,21 @@ export function PriceTrendToolbar({
         </button>
         <button
           type="button"
-          onClick={onExport}
-          disabled={disabled}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent"
-          title="Export CSV"
-        >
-          <Download className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onExpandToggle}
-          disabled={disabled}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent"
-          title={expanded ? "Collapse" : "Expand"}
-        >
-          {expanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
           onClick={onFullscreenToggle}
           disabled={disabled}
           className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent"
           title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
         >
           <Maximize2 className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={disabled}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent"
+          title="Export CSV"
+        >
+          <Download className="h-4 w-4" />
         </button>
       </div>
     </div>

@@ -49,7 +49,6 @@ export function MarketBreadthWidget() {
   const [marketCapBucket, setMarketCapBucket] = React.useState("");
   const [companyName, setCompanyName] = React.useState("");
   const [limit, setLimit] = React.useState(50);
-  const [expanded, setExpanded] = React.useState(false);
   const [filtersExpanded, setFiltersExpanded] = React.useState(false);
   const [sortMetric, setSortMetric] = React.useState<BreadthSortMetric>("breadthScore");
   const [sortDir, setSortDir] = React.useState<BreadthSortDir>("desc");
@@ -87,7 +86,7 @@ export function MarketBreadthWidget() {
       companyName,
       sortBy: sortMetric,
       sortDirection: sortDir,
-      limit: expanded ? Math.max(limit, 500) : limit,
+      limit,
     }) :
     level === "industry" ? useBreadthIndustries({
       sector: sector || undefined,
@@ -100,7 +99,7 @@ export function MarketBreadthWidget() {
       companyName,
       sortBy: sortMetric,
       sortDirection: sortDir,
-      limit: expanded ? Math.max(limit, 500) : limit,
+      limit,
     }) :
     level === "industrySubGroup" ? useBreadthSubgroups({
       sector: sector || undefined,
@@ -113,7 +112,7 @@ export function MarketBreadthWidget() {
       companyName,
       sortBy: sortMetric,
       sortDirection: sortDir,
-      limit: expanded ? Math.max(limit, 500) : limit,
+      limit,
     }) :
     useBreadthCompanies({
       sector: sector || undefined,
@@ -126,7 +125,7 @@ export function MarketBreadthWidget() {
       companyName,
       sortBy: sortMetric,
       sortDirection: sortDir,
-      limit: expanded ? Math.max(limit, 500) : limit,
+      limit,
     });
 
   const rawRows: BreadthRow[] = (activeQuery.data?.rows ?? []).map((r) => ({
@@ -297,7 +296,6 @@ export function MarketBreadthWidget() {
           level={level}
           canDrillUp={canDrillUp}
           canDrillDown={canDrillDown}
-          expanded={expanded}
           fullscreen={fullscreen}
           refreshing={isRefreshing}
           selectedHorizons={selectedHorizons}
@@ -305,7 +303,6 @@ export function MarketBreadthWidget() {
           signalType={signalType}
           onDrillUp={handleDrillUp}
           onDrillDown={handleDrillDown}
-          onExpandToggle={() => setExpanded((v) => !v)}
           onFullscreenToggle={() => setFullscreen((v) => !v)}
           onExport={handleExport}
           onRefresh={() => {

@@ -24,13 +24,11 @@ import type { PriceTrendV2SortMetric, PriceTrendV2SortDir, PriceTrendV2Period } 
 interface PriceTrendV2ToolbarProps {
   sortMetric: PriceTrendV2SortMetric;
   sortDir: PriceTrendV2SortDir;
-  expanded: boolean;
   fullscreen: boolean;
   refreshing: boolean;
   selectedPeriods: PriceTrendV2Period[];
   onSortChange: (metric: PriceTrendV2SortMetric) => void;
   onSortDirToggle: () => void;
-  onExpandToggle: () => void;
   onFullscreenToggle: () => void;
   onExport: () => void;
   onRefresh: () => void;
@@ -55,13 +53,11 @@ const ALL_PERIODS: PriceTrendV2Period[] = [
 export function PriceTrendV2Toolbar({
   sortMetric,
   sortDir,
-  expanded,
   fullscreen,
   refreshing,
   selectedPeriods,
   onSortChange,
   onSortDirToggle,
-  onExpandToggle,
   onFullscreenToggle,
   onExport,
   onRefresh,
@@ -86,12 +82,6 @@ export function PriceTrendV2Toolbar({
   const items = [
     ...(canDrillUp ? [{ key: "drill-up", label: "Drill Up", icon: <ArrowUpToLine className="h-4 w-4" />, onClick: onDrillUp! }] : []),
     ...(canDrillDown ? [{ key: "drill-down", label: "Drill Down", icon: <ArrowDownToLine className="h-4 w-4" />, onClick: onDrillDown! }] : []),
-    {
-      key: "expand",
-      label: expanded ? "Collapse" : "Expand",
-      icon: expanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />,
-      onClick: onExpandToggle,
-    },
     {
       key: "fullscreen",
       label: fullscreen ? "Exit Fullscreen" : "Fullscreen",

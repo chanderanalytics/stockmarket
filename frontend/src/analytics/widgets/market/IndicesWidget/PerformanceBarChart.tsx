@@ -16,7 +16,6 @@ interface PerformanceBarChartProps {
   onSortChange?: (key: SortKey) => void;
   onSortDirToggle?: () => void;
   onBarClick?: (name: string) => void;
-  onExport?: () => void;
 }
 
 export function PerformanceBarChart({
@@ -28,7 +27,6 @@ export function PerformanceBarChart({
   onSortChange,
   onSortDirToggle,
   onBarClick,
-  onExport,
 }: PerformanceBarChartProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const nodeRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
@@ -192,15 +190,13 @@ export function PerformanceBarChart({
         <div className="text-xs text-muted-foreground">
           Showing {periods.length} chart{periods.length > 1 ? "s" : ""} · Ranked by {RETURN_PERIODS.find((p) => p.key === periods[0])?.label ?? periods[0]}
         </div>
-        {onExport && (
-          <button
-            type="button"
-            onClick={handleExport}
-            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
-          >
-            Export PNG
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleExport}
+          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+        >
+          Export PNG
+        </button>
       </div>
       <div
         ref={containerRef}

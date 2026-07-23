@@ -19,14 +19,12 @@ interface VolumeProfileToolbarProps {
   level: VolumeProfileLevel;
   canDrillUp: boolean;
   canDrillDown: boolean;
-  expanded: boolean;
   fullscreen: boolean;
   refreshing: boolean;
   sortMetric: VolumeProfileSortMetric;
   sortDir: VolumeProfileSortDir;
   onDrillUp: () => void;
   onDrillDown: () => void;
-  onExpandToggle: () => void;
   onFullscreenToggle: () => void;
   onExport: () => void;
   onRefresh: () => void;
@@ -40,14 +38,12 @@ const selectClass =
 export function VolumeProfileToolbar({
   canDrillUp,
   canDrillDown,
-  expanded,
   fullscreen,
   refreshing,
   sortMetric,
   sortDir,
   onDrillUp,
   onDrillDown,
-  onExpandToggle,
   onFullscreenToggle,
   onExport,
   onRefresh,
@@ -61,12 +57,6 @@ export function VolumeProfileToolbar({
     ...(canDrillDown
       ? [{ key: "drill-down", label: "Drill Down", icon: <ArrowDownToLine className="h-4 w-4" />, onClick: onDrillDown }]
       : []),
-    {
-      key: "expand",
-      label: expanded ? "Collapse" : "Expand",
-      icon: expanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />,
-      onClick: onExpandToggle,
-    },
     {
       key: "fullscreen",
       label: fullscreen ? "Exit Fullscreen" : "Fullscreen",

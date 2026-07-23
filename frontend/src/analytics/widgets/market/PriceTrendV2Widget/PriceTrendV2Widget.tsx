@@ -44,7 +44,6 @@ export function PriceTrendV2Widget() {
   const [marketCap, setMarketCap] = React.useState<PriceTrendV2MarketCap>("");
   const [marketCapBucket, setMarketCapBucket] = React.useState<PriceTrendV2MarketCapBucket>("");
   const [limit, setLimit] = React.useState(50);
-  const [expanded, setExpanded] = React.useState(false);
   const [filtersExpanded, setFiltersExpanded] = React.useState(false);
   const [companyName, setCompanyName] = React.useState("");
   const [selectedPeriods, setSelectedPeriods] = React.useState<PriceTrendV2Period[]>(getDefaultPeriods());
@@ -68,7 +67,7 @@ export function PriceTrendV2Widget() {
     selectedPeriods,
     sortMetric,
     sortDirection: sortDir,
-    limit: expanded ? Math.max(limit, 500) : limit,
+    limit,
     hierarchyLevel: level,
   });
 
@@ -230,13 +229,11 @@ export function PriceTrendV2Widget() {
         <PriceTrendV2Toolbar
           sortMetric={sortMetric}
           sortDir={sortDir}
-          expanded={expanded}
           fullscreen={fullscreen}
           refreshing={isRefreshing}
           selectedPeriods={selectedPeriods}
           onSortChange={setSortMetric}
           onSortDirToggle={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-          onExpandToggle={() => setExpanded((v) => !v)}
           onFullscreenToggle={() => setFullscreen((v) => !v)}
           onExport={handleExport}
           onRefresh={() => query.refetch()}

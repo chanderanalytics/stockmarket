@@ -59,7 +59,6 @@ const PERIOD_LABELS: Record<ReturnSortKey, string> = {
 
 export function IndicesWidget() {
   const [limit, setLimit] = React.useState(50);
-  const [expanded, setExpanded] = React.useState(false);
   const [sortKey, setSortKey] = React.useState<SortKey>("return_21d");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
   const [tableSortKey, setTableSortKey] = React.useState<SortKey>("return_21d");
@@ -89,7 +88,7 @@ export function IndicesWidget() {
   };
 
   const featuresQuery = useIndicesFeatures({
-    limit: expanded ? Math.max(limit, 500) : limit,
+    limit,
   });
 
   const latestDateQuery = useIndicesLatestDate();
@@ -251,13 +250,6 @@ export function IndicesWidget() {
           </span>
         )}
         <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-accent"
-            >
-              {expanded ? "Show Less" : "Show More"}
-            </button>
             <button
               type="button"
               onClick={handleExport}

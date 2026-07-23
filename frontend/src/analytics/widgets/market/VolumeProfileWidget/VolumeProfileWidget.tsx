@@ -48,7 +48,6 @@ export function VolumeProfileWidget() {
   const [marketCap, setMarketCap] = React.useState<VolumeProfileMarketCap>("");
   const [marketCapBucket, setMarketCapBucket] = React.useState<VolumeProfileMarketCapBucket>("");
   const [limit, setLimit] = React.useState(50);
-  const [expanded, setExpanded] = React.useState(false);
   const [filtersExpanded, setFiltersExpanded] = React.useState(false);
   const [companyName, setCompanyName] = React.useState("");
   const [sortMetric, setSortMetric] = React.useState<VolumeProfileSortMetric>("volume");
@@ -72,7 +71,7 @@ export function VolumeProfileWidget() {
     marketCap: marketCap || undefined,
     marketCapBucket: marketCapBucket || undefined,
     companyName: companyName || undefined,
-    limit: expanded ? Math.max(limit, 500) : limit,
+    limit,
     sortMetric,
     sortDirection: sortDir,
   });
@@ -209,14 +208,12 @@ export function VolumeProfileWidget() {
             level={level}
             canDrillUp={canDrillUp}
             canDrillDown={canDrillDown}
-            expanded={expanded}
             fullscreen={fullscreen}
             refreshing={isRefreshing}
             sortMetric={sortMetric}
             sortDir={sortDir}
             onDrillUp={handleDrillUp}
             onDrillDown={handleDrillDown}
-            onExpandToggle={() => setExpanded((v) => !v)}
             onFullscreenToggle={() => setFullscreen((v) => !v)}
             onExport={() => exportEChartPng(CHART_ID, "volume-profile.png")}
             onRefresh={() => query.refetch()}
@@ -261,7 +258,6 @@ export function VolumeProfileWidget() {
               onMarketCapBucket={setMarketCapBucket}
               onLimit={(n) => {
                 setLimit(n);
-                setExpanded(false);
               }}
               onCompanyName={handleCompanyNameChange}
               onCompanySelect={handleCompanySelect}
