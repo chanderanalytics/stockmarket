@@ -19,6 +19,9 @@ export default function MarketsPage() {
     queryKeys.volumeProfile.data({ level: "company", limit: 50 }),
     () => volumeProfileService.data({ level: "company", limit: 50 }),
   );
+  const statusQ = useApiQuery(queryKeys.market.status(), () => marketService.status(), {
+    staleTime: 60_000,
+  });
 
   const indices = idxQ.data ?? [];
   const movers = moversQ.data;
@@ -27,6 +30,15 @@ export default function MarketsPage() {
 
   const gainers = movers?.gainers ?? [];
   const losers = movers?.losers ?? [];
+
+  const asOf = statusQ.data?.asOf ?? "";
+  const formattedDate = asOf
+    ? new Date(asOf).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
 
   const heatmapRows = React.useMemo(() => sectors.map((s) => s.sector), [sectors]);
   const heatmapCols = React.useMemo(() => ["Return"], []);
@@ -45,9 +57,16 @@ export default function MarketsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Markets</h1>
-        <p className="text-sm text-muted-foreground">Indices, movers and sector heatmap.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Markets</h1>
+          <p className="text-sm text-muted-foreground">Indices, movers and sector heatmap.</p>
+        </div>
+        {formattedDate && (
+          <span className="text-xs text-muted-foreground">
+            Data as of {formattedDate}
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">

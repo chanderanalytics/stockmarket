@@ -27,6 +27,9 @@ import { DMADistanceTable } from "./DMADistanceTable";
 import { MarketHealthCards } from "./MarketHealthCards";
 import { MarketBreadthFilters } from "./MarketBreadthFilters";
 import { MomentumMatrix } from "./MomentumMatrix";
+import { useApiQuery } from "@/shared/hooks";
+import { queryKeys } from "@/shared/api/query-keys";
+import { marketService } from "@/shared/api/services/market";
 
 const DEFAULT_HORIZONS: BreadthHorizon[] = [1, 5, 21, 63, 126, 256];
 
@@ -67,6 +70,10 @@ export function MarketBreadthWidget() {
     undefined;
 
   const summaryQuery = useBreadthSummary({ horizons: [period], signalType, marketCap, marketCapBucket, companyName });
+
+  const statusQuery = useApiQuery(queryKeys.market.status(), () => marketService.status(), {
+    staleTime: 60_000,
+  });
 
   const activeQuery =
     level === "sector" ? useBreadthSectors({
@@ -126,6 +133,15 @@ export function MarketBreadthWidget() {
     ...r,
     horizons: r.horizons && typeof r.horizons === "object" ? r.horizons : {},
   }));
+
+  const asOf = statusQuery.data?.asOf ?? "";
+  const formattedDate = asOf
+    ? new Date(asOf).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
 
   const filteredRows = React.useMemo(() => {
     if (!searchQuery.trim()) return rawRows;
@@ -252,23 +268,30 @@ export function MarketBreadthWidget() {
       <MarketHealthCards summary={summaryQuery.data} isLoading={summaryQuery.isLoading} />
 
       <div className="flex flex-col gap-3 border-b border-border pb-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Level</span>
-          {(["market", "sector", "industry", "industrySubGroup", "company"] as const).map((lvl) => (
-            <button
-              key={lvl}
-              type="button"
-              onClick={() => {
-                if (lvl === "market") { setSector(""); setIndustry(""); setIndustrySubGroup(""); }
-                setLevel(lvl);
-              }}
-              className={`h-8 rounded-md border px-2.5 text-xs font-medium transition-colors select-none ${
-                level === lvl ? "border-foreground bg-foreground text-background" : "border-border hover:bg-accent"
-              }`}
-            >
-              {lvl === "market" ? "Market" : lvl === "sector" ? "Sector" : lvl === "industry" ? "Industry" : lvl === "industrySubGroup" ? "Sub-Industry" : "Company"}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Level</span>
+            {(["market", "sector", "industry", "industrySubGroup", "company"] as const).map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                onClick={() => {
+                  if (lvl === "market") { setSector(""); setIndustry(""); setIndustrySubGroup(""); }
+                  setLevel(lvl);
+                }}
+                className={`h-8 rounded-md border px-2.5 text-xs font-medium transition-colors select-none ${
+                  level === lvl ? "border-foreground bg-foreground text-background" : "border-border hover:bg-accent"
+                }`}
+              >
+                {lvl === "market" ? "Market" : lvl === "sector" ? "Sector" : lvl === "industry" ? "Industry" : lvl === "industrySubGroup" ? "Sub-Industry" : "Company"}
+              </button>
+            ))}
+          </div>
+          {formattedDate && (
+            <span className="text-xs text-muted-foreground">
+              Data as of {formattedDate}
+            </span>
+          )}
         </div>
         <BreadthToolbar
           level={level}
