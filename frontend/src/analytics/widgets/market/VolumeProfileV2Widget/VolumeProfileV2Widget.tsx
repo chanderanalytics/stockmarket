@@ -222,8 +222,8 @@ export function VolumeProfileV2Widget() {
         ))}
       </div>
       <div className="flex flex-col gap-3 border-b border-border pb-3 lg:flex-row lg:items-center lg:justify-between">
-        <VolumeProfileV2Hierarchy drill={drill} onSelect={handleHierarchySelect} />
         <div className="flex items-center gap-3">
+          <VolumeProfileV2Hierarchy drill={drill} onSelect={handleHierarchySelect} />
           <VolumeProfileV2Toolbar
             level={level}
             canDrillUp={canDrillUp}
@@ -242,12 +242,12 @@ export function VolumeProfileV2Widget() {
             onSortChange={setSortMetric}
             onSortDirToggle={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
           />
-          {latestDate && (
-            <span className="text-xs text-muted-foreground">
-              Data date: {new Date(latestDate).toLocaleDateString("en-IN")}
-            </span>
-          )}
         </div>
+        {latestDate && (
+          <span className="text-xs text-muted-foreground">
+            Data date: {new Date(latestDate).toLocaleDateString("en-IN")}
+          </span>
+        )}
       </div>
 
       <div className="rounded-md border border-border">

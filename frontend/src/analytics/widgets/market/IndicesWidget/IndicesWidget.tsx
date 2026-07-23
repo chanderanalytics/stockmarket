@@ -194,7 +194,8 @@ export function IndicesWidget() {
   return (
     <VisualizationContainer fullscreen={false} className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 border-b border-border pb-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -258,7 +259,13 @@ export function IndicesWidget() {
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+        </div>
+        {latestDate && (
+          <span className="text-xs text-muted-foreground">
+            Data as of: {new Date(latestDate).toLocaleDateString("en-IN")}
+          </span>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
@@ -468,9 +475,6 @@ export function IndicesWidget() {
         <span>
           Showing: {sortedRows.length} / {featuresQuery.data?.total ?? rawRows.length}
         </span>
-        {latestDate && (
-          <span>Data as of: {new Date(latestDate).toLocaleDateString("en-IN")}</span>
-        )}
       </div>
     </VisualizationContainer>
   );

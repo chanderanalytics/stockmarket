@@ -159,24 +159,31 @@ export function PriceTrendWidget() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 border-b border-border pb-3">
-        <PriceTrendToolbar
-          sortMetric={sortMetric}
-          sortDir={sortDir}
-          expanded={expanded}
-          fullscreen={fullscreen}
-          refreshing={isRefreshing}
-          selectedPeriods={selectedPeriods}
-          onSortChange={setSortMetric}
-          onSortDirToggle={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-          onExpandToggle={() => setExpanded((v) => !v)}
-          onFullscreenToggle={() => setFullscreen((v) => !v)}
-          onExport={handleExport}
-          onRefresh={() => query.refetch()}
-          onPeriodsChange={handlePeriodsChange}
-          view={view}
-          onViewChange={setView}
-          disabled={isLoading || isError}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <PriceTrendToolbar
+            sortMetric={sortMetric}
+            sortDir={sortDir}
+            expanded={expanded}
+            fullscreen={fullscreen}
+            refreshing={isRefreshing}
+            selectedPeriods={selectedPeriods}
+            onSortChange={setSortMetric}
+            onSortDirToggle={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            onExpandToggle={() => setExpanded((v) => !v)}
+            onFullscreenToggle={() => setFullscreen((v) => !v)}
+            onExport={handleExport}
+            onRefresh={() => query.refetch()}
+            onPeriodsChange={handlePeriodsChange}
+            view={view}
+            onViewChange={setView}
+            disabled={isLoading || isError}
+          />
+          {latestDate && (
+            <span className="text-xs text-muted-foreground">
+              Data date: {new Date(latestDate).toLocaleDateString("en-IN")}
+            </span>
+          )}
+        </div>
         <div className="rounded-md border border-border">
           <button
             type="button"
@@ -222,18 +229,13 @@ export function PriceTrendWidget() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm text-muted-foreground">
-          Companies: <span className="font-medium text-foreground">{query.data?.total ?? rawRows.length}</span>
-        </span>
-        {latestDate && (
-          <span className="text-xs text-muted-foreground">
-            Data date: {new Date(latestDate).toLocaleDateString("en-IN")}
-          </span>
-        )}
-      </div>
+       <div className="flex flex-wrap items-center justify-between gap-2">
+         <span className="text-sm text-muted-foreground">
+           Companies: <span className="font-medium text-foreground">{query.data?.total ?? rawRows.length}</span>
+         </span>
+       </div>
 
-      <VisualizationContainer fullscreen={fullscreen} className="flex flex-col gap-3">
+       <VisualizationContainer fullscreen={fullscreen} className="flex flex-col gap-3">
         {isError && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             Failed to load price trends.

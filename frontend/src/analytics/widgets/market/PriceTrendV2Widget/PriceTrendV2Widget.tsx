@@ -205,20 +205,27 @@ export function PriceTrendV2Widget() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 border-b border-border pb-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Level:</span>
-          {LEVEL_ORDER.map((lvl) => (
-            <button
-              key={lvl}
-              type="button"
-              onClick={() => handleHierarchySelect(lvl)}
-              className={`rounded-md px-2 py-1 ${
-                level === lvl ? "bg-accent text-accent-foreground" : "hover:text-foreground"
-              }`}
-            >
-              {lvl === "sector" ? "Sector" : lvl === "industry" ? "Industry" : lvl === "industrySubGroup" ? "Sub-Group" : "Company"}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Level:</span>
+            {LEVEL_ORDER.map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                onClick={() => handleHierarchySelect(lvl)}
+                className={`rounded-md px-2 py-1 ${
+                  level === lvl ? "bg-accent text-accent-foreground" : "hover:text-foreground"
+                }`}
+              >
+                {lvl === "sector" ? "Sector" : lvl === "industry" ? "Industry" : lvl === "industrySubGroup" ? "Sub-Group" : "Company"}
+              </button>
+            ))}
+          </div>
+          {latestDate && (
+            <span className="text-xs text-muted-foreground">
+              Data date: {new Date(latestDate).toLocaleDateString("en-IN")}
+            </span>
+          )}
         </div>
         <PriceTrendV2Toolbar
           sortMetric={sortMetric}
@@ -285,18 +292,13 @@ export function PriceTrendV2Widget() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm text-muted-foreground">
-          {level === "sector" ? "Sectors" : level === "industry" ? "Industries" : level === "industrySubGroup" ? "Sub-groups" : "Companies"}: <span className="font-medium text-foreground">{query.data?.total ?? rawRows.length}</span>
-        </span>
-        {latestDate && (
-          <span className="text-xs text-muted-foreground">
-            Data date: {new Date(latestDate).toLocaleDateString("en-IN")}
-          </span>
-        )}
-      </div>
+       <div className="flex flex-wrap items-center justify-between gap-2">
+         <span className="text-sm text-muted-foreground">
+           {level === "sector" ? "Sectors" : level === "industry" ? "Industries" : level === "industrySubGroup" ? "Sub-groups" : "Companies"}: <span className="font-medium text-foreground">{query.data?.total ?? rawRows.length}</span>
+         </span>
+       </div>
 
-      <VisualizationContainer fullscreen={fullscreen} className="flex flex-col gap-3">
+       <VisualizationContainer fullscreen={fullscreen} className="flex flex-col gap-3">
         {isError && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             Failed to load price trends.
