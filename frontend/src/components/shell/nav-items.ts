@@ -8,6 +8,7 @@ import {
   BarChart3,
   LineChart,
   Gauge,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ export const navItems: NavItem[] = [
   { title: "Markets", href: "/markets", icon: TrendingUp },
   { title: "Market Breadth", href: "/market-breadth", icon: Gauge },
   { title: "Indices", href: "/indices", icon: BarChart3 },
+  { title: "Performance", href: "/performance", icon: Activity },
   { title: "Volume Profile", href: "/volume-profile-v2", icon: BarChart3 },
   { title: "Price Trends", href: "/price-trends-v2", icon: LineChart },
   { title: "Settings", href: "/settings", icon: Settings },

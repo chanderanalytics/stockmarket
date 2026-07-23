@@ -11,3 +11,4 @@ export * from "./market/VolumeProfileV2Widget";
 export * from "./market/PriceTrendV2Widget";
 export * from "./market/MarketBreadthWidget";
 export * from "./market/IndicesWidget";
+export * from "./performance";

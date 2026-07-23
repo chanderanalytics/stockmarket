@@ -73,6 +73,13 @@ export const queryKeys = {
     regions: () => ["indices", "regions"] as const,
     regionalStrength: (params?: Record<string, unknown>) => ["indices", "regional-strength", params ?? {}] as const,
   },
+  performance: {
+    summary: () => ["performance", "summary"] as const,
+    companies: (params?: Record<string, unknown>) => ["performance", "companies", params ?? {}] as const,
+    trades: (params?: Record<string, unknown>) => ["performance", "trades", params ?? {}] as const,
+    companyDetail: (companyId: number) => ["performance", "company", companyId] as const,
+    tradeDetail: (tradeId: string) => ["performance", "trade", tradeId] as const,
+  },
   auth: {
     me: () => ["auth", "me"] as const,
   },

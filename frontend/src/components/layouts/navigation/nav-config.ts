@@ -42,6 +42,12 @@ export const navGroups: NavGroup[] = [
         description: "Index returns, heatmaps and time series.",
       },
       {
+        title: "Performance",
+        href: "/performance",
+        icon: Activity,
+        description: "Trading performance, strategy summary and trade explorer.",
+      },
+      {
         title: "Sectors",
         href: "/sectors",
         icon: Layers,

@@ -8,3 +8,4 @@ export * from "./auth";
 export * from "./volume-profile";
 export * from "./price-trends";
 export * from "./indices";
+export * from "./performance";
