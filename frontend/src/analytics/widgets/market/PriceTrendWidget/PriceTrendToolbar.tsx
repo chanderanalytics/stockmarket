@@ -189,7 +189,7 @@ export function PriceTrendToolbar({
           onClick={onExport}
           disabled={disabled}
           className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent"
-          title="Export PNG"
+          title="Export CSV"
         >
           <Download className="h-4 w-4" />
         </button>

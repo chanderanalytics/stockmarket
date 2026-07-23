@@ -15,6 +15,7 @@ interface DMADistanceTableProps {
   rows: any[];
   onPeriodChange: (period: BreadthHorizon) => void;
   onViewModeChange: (mode: "metrics" | "marketState") => void;
+  onExport?: () => void;
   onDrillDown?: (name: string) => void;
 }
 
@@ -206,7 +207,7 @@ interface DistanceRow {
   trendByDMA?: Record<string, { score: number; classification: string }>;
 }
 
-export function DMADistanceTable({ summary, isLoading, period, viewMode, level, rows, onPeriodChange, onViewModeChange, onDrillDown }: DMADistanceTableProps) {
+export function DMADistanceTable({ summary, isLoading, period, viewMode, level, rows, onPeriodChange, onViewModeChange, onExport, onDrillDown }: DMADistanceTableProps) {
   if (isLoading || !summary) {
     return (
       <div className="rounded-md border border-border p-4">
@@ -261,6 +262,25 @@ export function DMADistanceTable({ summary, isLoading, period, viewMode, level, 
     viewMode === "metrics" ? "Median price distance from DMA across selected entities." :
     "Current market state per DMA. Shows condition (label) and direction (arrow).";
 
+  const handleExport = React.useCallback(() => {
+    const header = ["Entity", ...DMA_PERIODS.map((p) => `${p} DMA`)];
+    const lines = [header.join(",")];
+    for (const row of rowsDist) {
+      const cells = [
+        `"${String(row.entity.name).replace(/"/g, '""')}"`,
+        ...DMA_PERIODS.map((p) => (typeof row.values[p] === "number" ? row.values[p].toFixed(2) : "")),
+      ];
+      lines.push(cells.join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dma-distance-${period}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [rowsDist, period]);
+
   return (
     <div className="rounded-md border border-border p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -289,6 +309,7 @@ export function DMADistanceTable({ summary, isLoading, period, viewMode, level, 
             </Tooltip>
           </TooltipProvider>
         </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           {(["metrics", "marketState"] as const).map((mode) => (
             <button
@@ -315,6 +336,14 @@ export function DMADistanceTable({ summary, isLoading, period, viewMode, level, 
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={handleExport}
+          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+        >
+          Export CSV
+        </button>
+      </div>
       </div>
 
       <div className="overflow-auto rounded-md border border-border" style={{ maxHeight: "calc(100vh - 320px)" }}>

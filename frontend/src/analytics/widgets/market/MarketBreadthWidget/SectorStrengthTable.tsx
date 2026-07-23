@@ -5,9 +5,10 @@ interface SectorStrengthTableProps {
   data?: BreadthResponse;
   isLoading: boolean;
   dmaPeriods: number[];
+  onExport?: () => void;
 }
 
-export function SectorStrengthTable({ data, isLoading, dmaPeriods }: SectorStrengthTableProps) {
+export function SectorStrengthTable({ data, isLoading, dmaPeriods, onExport }: SectorStrengthTableProps) {
   if (isLoading) {
     return (
       <div className="rounded-md border border-border">
@@ -37,11 +38,22 @@ export function SectorStrengthTable({ data, isLoading, dmaPeriods }: SectorStren
 
   return (
     <div className="rounded-md border border-border">
-      <div className="border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold">Sector Strength</h3>
-        <p className="text-xs text-muted-foreground">
-          Breadth score and participation by sector
-        </p>
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div>
+          <h3 className="text-sm font-semibold">Sector Strength</h3>
+          <p className="text-xs text-muted-foreground">
+            Breadth score and participation by sector
+          </p>
+        </div>
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Export CSV
+          </button>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">

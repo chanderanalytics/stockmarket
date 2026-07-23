@@ -449,6 +449,7 @@ export function IndicesWidget() {
                   rows={regionalQuery.data?.rows?.filter((r) => activeCategory === "commodities" ? r.region === "Commodities" : r.region !== "Commodities") ?? []}
                   period={regionalQuery.data?.period ?? "21d"}
                   loading={regionalQuery.isLoading}
+                  onExport={() => {}}
                 />
               </div>
             )}

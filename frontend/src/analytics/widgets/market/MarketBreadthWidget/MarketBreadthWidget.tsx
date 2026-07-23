@@ -328,7 +328,7 @@ export function MarketBreadthWidget() {
         <VisualizationEmpty message="No breadth data for the current selection." />
       ) : (
         <>
-          <DMADistanceTable summary={summaryQuery.data} isLoading={isLoading} period={period} viewMode={viewMode} level={level} rows={filteredRows} onPeriodChange={setPeriod} onViewModeChange={setViewMode} onDrillDown={handleEntityClick} />
+          <DMADistanceTable summary={summaryQuery.data} isLoading={isLoading} period={period} viewMode={viewMode} level={level} rows={filteredRows} onPeriodChange={setPeriod} onViewModeChange={setViewMode} onExport={handleExport} onDrillDown={handleEntityClick} />
           <BreadthGridTable
             rows={filteredRows}
             selectedHorizons={selectedHorizons}

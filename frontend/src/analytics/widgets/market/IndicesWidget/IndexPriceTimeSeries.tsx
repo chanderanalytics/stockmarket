@@ -1,3 +1,4 @@
+"use client";
 import * as React from "react";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
@@ -7,12 +8,23 @@ import type { IndexPriceRow } from "./types";
 interface IndexPriceTimeSeriesProps {
   series: Array<{ name: string; data: IndexPriceRow[] }>;
   loading?: boolean;
+  onExport?: () => void;
 }
 
-export function IndexPriceTimeSeries({ series, loading }: IndexPriceTimeSeriesProps) {
+export function IndexPriceTimeSeries({ series, loading, onExport }: IndexPriceTimeSeriesProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const chartRef = React.useRef<echarts.ECharts | null>(null);
   const width = useDebouncedResize(containerRef);
+
+  const handleExport = React.useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const url = chart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#ffffff" });
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "price-history.png";
+    a.click();
+  }, []);
 
   const dates = React.useMemo(
     () => series[0]?.data.map((d) => d.date).filter((d): d is string => d !== null) ?? [],
@@ -84,5 +96,20 @@ export function IndexPriceTimeSeries({ series, loading }: IndexPriceTimeSeriesPr
     );
   }
 
-  return <div ref={containerRef} className="h-[400px] w-full" />;
+  return (
+    <div className="flex flex-col gap-2">
+      {onExport && (
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={handleExport}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Export PNG
+          </button>
+        </div>
+      )}
+      <div ref={containerRef} className="h-[400px] w-full" />
+    </div>
+  );
 }

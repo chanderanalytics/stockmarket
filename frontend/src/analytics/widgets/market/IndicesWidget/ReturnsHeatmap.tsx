@@ -14,6 +14,7 @@ interface ReturnsHeatmapProps {
   sortDir?: SortDir;
   onSortChange?: (key: SortKey) => void;
   onSortDirToggle?: () => void;
+  onExport?: () => void;
 }
 
 export function ReturnsHeatmap({
@@ -24,6 +25,7 @@ export function ReturnsHeatmap({
   sortDir = "desc",
   onSortChange,
   onSortDirToggle,
+  onExport,
 }: ReturnsHeatmapProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const chartRef = React.useRef<echarts.ECharts | null>(null);
@@ -244,8 +246,29 @@ export function ReturnsHeatmap({
     );
   }
 
+  const handleExport = React.useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const url = chart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#ffffff" });
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `heatmap-${periods[0] || "chart"}.png`;
+    a.click();
+  }, [periods]);
+
   return (
     <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-end">
+        {onExport && (
+          <button
+            type="button"
+            onClick={handleExport}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Export PNG
+          </button>
+        )}
+      </div>
       <div ref={containerRef} className="h-[500px] w-full" />
     </div>
   );

@@ -16,6 +16,7 @@ interface PerformanceBarChartProps {
   onSortChange?: (key: SortKey) => void;
   onSortDirToggle?: () => void;
   onBarClick?: (name: string) => void;
+  onExport?: () => void;
 }
 
 export function PerformanceBarChart({
@@ -27,6 +28,7 @@ export function PerformanceBarChart({
   onSortChange,
   onSortDirToggle,
   onBarClick,
+  onExport,
 }: PerformanceBarChartProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const nodeRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
@@ -166,6 +168,16 @@ export function PerformanceBarChart({
     }
   };
 
+  const handleExport = React.useCallback(() => {
+    const firstChart = chartRefs.current.values().next().value;
+    if (!firstChart) return;
+    const url = firstChart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#ffffff" });
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bar-chart.png";
+    a.click();
+  }, []);
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
@@ -176,8 +188,19 @@ export function PerformanceBarChart({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-xs text-muted-foreground">
-        Showing {periods.length} chart{periods.length > 1 ? "s" : ""} · Ranked by {RETURN_PERIODS.find((p) => p.key === periods[0])?.label ?? periods[0]}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground">
+          Showing {periods.length} chart{periods.length > 1 ? "s" : ""} · Ranked by {RETURN_PERIODS.find((p) => p.key === periods[0])?.label ?? periods[0]}
+        </div>
+        {onExport && (
+          <button
+            type="button"
+            onClick={handleExport}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Export PNG
+          </button>
+        )}
       </div>
       <div
         ref={containerRef}

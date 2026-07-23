@@ -4,6 +4,7 @@ import * as React from "react";
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis, Label, ReferenceLine, Cell } from "recharts";
 import type { BreadthRow, BreadthSignalType } from "./types";
 import { SIGNAL_TYPE_LABELS } from "./types";
+import { exportChartAsPng } from "@/shared/charts/export";
 
 interface MomentumMatrixProps {
   rows: BreadthRow[];
@@ -63,6 +64,11 @@ export function MomentumMatrix({ rows, isLoading, signalType, onEntityClick }: M
   const [view, setView] = React.useState<"chart" | "table">("chart");
   const [sortColumn, setSortColumn] = React.useState<SortColumn>("breadthScore");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
+  const chartContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const handleExport = React.useCallback(() => {
+    exportChartAsPng(chartContainerRef.current, "momentum-matrix.png");
+  }, []);
 
   const handleSort = React.useCallback((col: SortColumn) => {
     if (sortColumn === col) {
@@ -132,26 +138,68 @@ export function MomentumMatrix({ rows, isLoading, signalType, onEntityClick }: M
           <div className="text-sm font-medium text-foreground">Momentum Matrix</div>
           <div className="text-[11px] text-muted-foreground">Weighted return = 252-day market-cap-weighted return</div>
         </div>
-        <div className="flex rounded-md border border-border overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setView("chart")}
-            className={`px-3 py-1 text-xs ${view === "chart" ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
-          >
-            Chart
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("table")}
-            className={`px-3 py-1 text-xs ${view === "table" ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
-          >
-            Table
-          </button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setView("chart")}
+              className={`px-3 py-1 text-xs ${view === "chart" ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+            >
+              Chart
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("table")}
+              className={`px-3 py-1 text-xs ${view === "table" ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+            >
+              Table
+            </button>
+          </div>
+          {view === "chart" && (
+            <button
+              type="button"
+              onClick={handleExport}
+              className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+            >
+              Export PNG
+            </button>
+          )}
+          {view === "table" && (
+            <button
+              type="button"
+              onClick={() => {
+                const header = ["Entity", "Count", "Quadrant", "Breadth", "Weighted Return", "Market Cap", "Relative Volume"];
+                const lines = [header.join(",")];
+                data.forEach((row) => {
+                  const cells = [
+                    `"${String(row.name).replace(/"/g, '""')}"`,
+                    typeof row.companyCount === "number" ? String(row.companyCount) : "",
+                    row.quadrant,
+                    row.breadthScore.toFixed(1),
+                    row.weightedReturn.toFixed(2),
+                    row.marketCap.toFixed(2),
+                    row.relativeVolume.toFixed(2),
+                  ];
+                  lines.push(cells.join(","));
+                });
+                const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "momentum-matrix.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+            >
+              Export CSV
+            </button>
+          )}
         </div>
       </div>
 
       {view === "chart" ? (
-        <div className="mt-3 h-[420px] w-full">
+        <div ref={chartContainerRef} className="mt-3 h-[420px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 20, bottom: 50, left: 10 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
