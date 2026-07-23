@@ -28,7 +28,7 @@ export interface PriceTrendV2TableProps {
   onEntityClick?: (name: string) => void;
 }
 
-type SortColumn = "name" | "marketCap" | "weightedMarketCap" | PriceTrendV2Period;
+type SortColumn = "name" | "marketCap" | "weightedMarketCap" | "count" | PriceTrendV2Period;
 type SortDir = "asc" | "desc";
 
 function SortIndicator({ col, sortColumn, sortDir }: { col: SortColumn; sortColumn: SortColumn; sortDir: SortDir }) {
@@ -63,6 +63,9 @@ export function PriceTrendV2Table({
       } else if (sortMetric === "marketCap" || sortMetric === "weightedMarketCap") {
         aVal = a.marketCap ?? 0;
         bVal = b.marketCap ?? 0;
+      } else if (sortMetric === "count") {
+        aVal = a.companyCount ?? 0;
+        bVal = b.companyCount ?? 0;
       } else {
         const period = sortMetric as PriceTrendV2Period;
         const aV = a.values.get(period);
@@ -131,8 +134,8 @@ export function PriceTrendV2Table({
                 </button>
               </th>
               <th rowSpan={2} className="px-3 py-2 text-left tabular-nums">
-                <button type="button" onClick={() => handleSort("marketCap")} className="hover:underline">
-                  Count <SortIndicator col="marketCap" sortColumn={sortMetric} sortDir={sortDir} />
+                <button type="button" onClick={() => handleSort("count")} className="hover:underline">
+                  Count <SortIndicator col="count" sortColumn={sortMetric} sortDir={sortDir} />
                 </button>
               </th>
               {periods.map((p) => (

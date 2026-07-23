@@ -76,8 +76,9 @@ export function VolumeProfileV2Grid({
       aVal = a.name;
       bVal = b.name;
       if (sortMetric !== "name") {
-        const aV = a[sortMetric];
-        const bV = b[sortMetric];
+        const field = sortMetric === "count" ? "companyCount" : sortMetric;
+        const aV = a[field];
+        const bV = b[field];
         aVal = typeof aV === "number" ? aV : 0;
         bVal = typeof bV === "number" ? bV : 0;
       }
@@ -142,8 +143,8 @@ export function VolumeProfileV2Grid({
                 </button>
               </th>
               <th rowSpan={2} className="px-3 py-2 text-left tabular-nums">
-                <button type="button" onClick={() => handleSort("relative1Y")} className="hover:underline">
-                  Count <SortIndicator col="relative1Y" sortColumn={sortMetric} sortDir={sortDir} />
+                <button type="button" onClick={() => handleSort("count")} className="hover:underline">
+                  Count <SortIndicator col="count" sortColumn={sortMetric} sortDir={sortDir} />
                 </button>
               </th>
               {METRIC_KEYS.map((key) => (

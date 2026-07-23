@@ -33,7 +33,8 @@ export type VolumeProfileV2SortMetric =
   | "name"
   | "relative1W"
   | "relative1M"
-  | "relative1Y";
+  | "relative1Y"
+  | "count";
 
 export type VolumeProfileV2SortDir = "asc" | "desc";
 

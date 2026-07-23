@@ -87,7 +87,7 @@ export function PriceTrendTable({
       return;
     }
     if (columnId === "count") {
-      onSortChange("name");
+      onSortChange("count");
       return;
     }
     if (columnId === "marketCap") {

@@ -244,7 +244,15 @@ export function PriceTrendWidget() {
         )}
         {isEmpty && <VisualizationEmpty message="No companies found. Try adjusting filters." />}
         {!isEmpty && view === "table" && (
-          <PriceTrendTextTable rows={displayRows} periods={sortedPeriods} loading={isLoading} />
+          <PriceTrendTextTable
+            rows={displayRows}
+            periods={sortedPeriods}
+            loading={isLoading}
+            sortMetric={sortMetric}
+            sortDir={sortDir}
+            onSortChange={setSortMetric}
+            onSortDirToggle={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+          />
         )}
         {!isEmpty && view === "chart" && (
           <PriceTrendGrid

@@ -57,8 +57,9 @@ export function sortRows(
   dir: VolumeProfileV2SortDir,
 ): VolumeProfileV2Row[] {
   const sorted = [...rows].sort((a, b) => {
-    const av = a[metric];
-    const bv = b[metric];
+    const field = metric === "count" ? "companyCount" : metric;
+    const av = a[field];
+    const bv = b[field];
     const avv = typeof av === "number" ? av : 0;
     const bvv = typeof bv === "number" ? bv : 0;
     return dir === "asc" ? avv - bvv : bvv - avv;
@@ -84,4 +85,5 @@ export const SORT_METRIC_LABELS: Record<VolumeProfileV2SortMetric, string> = {
   relative1W: "Relative 1W",
   relative1M: "Relative 1M",
   relative1Y: "Relative 1Y",
+  count: "Count",
 };
