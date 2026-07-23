@@ -53,27 +53,60 @@ export function ReturnsHeatmap({
 
   const yAxis = React.useMemo(() => sortedRows.map((r) => r.name), [sortedRows]);
 
-  const selectedPeriodStats = React.useMemo(() => {
-    if (!sortKey) return { min: -50, max: 50 };
-    const key = sortKey as ReturnSortKey;
-    const values = rows
-      .map((r) => r[key])
-      .filter((v): v is number => v !== null && v !== undefined && Number.isFinite(v));
-    if (!values.length) return { min: -50, max: 50 };
-    const min = Math.min(0, ...values);
-    const max = Math.max(0, ...values);
-    return { min: Math.floor(min), max: Math.ceil(max) };
-  }, [rows, sortKey]);
+  const periodMinMax = React.useMemo(() => {
+    const map = new Map<ReturnSortKey, { min: number; max: number }>();
+    periods.forEach((period) => {
+      const values = rows
+        .map((r) => r[period])
+        .filter((v): v is number => v !== null && v !== undefined && Number.isFinite(v));
+      if (!values.length) {
+        map.set(period, { min: -5, max: 5 });
+        return;
+      }
+      const min = Math.min(0, ...values);
+      const max = Math.max(0, ...values);
+      map.set(period, { min: Math.floor(min), max: Math.ceil(max) });
+    });
+    return map;
+  }, [rows, periods]);
+
+  function heatmapColor(value: number, min: number, max: number): string {
+    const stops = ["#dc2626", "#fca5a5", "#fef2f2", "#fef9c3", "#86efac", "#166534"];
+    if (max <= min) {
+      const mid = Math.floor(stops.length / 2);
+      return stops[mid];
+    }
+    const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    const scaled = t * (stops.length - 1);
+    const idx = Math.min(Math.floor(scaled), stops.length - 2);
+    const frac = scaled - idx;
+    const c1 = hexToRgb(stops[idx]);
+    const c2 = hexToRgb(stops[idx + 1]);
+    if (!c1 || !c2) return stops[idx];
+    const r = Math.round(c1.r + (c2.r - c1.r) * frac);
+    const g = Math.round(c1.g + (c2.g - c1.g) * frac);
+    const b = Math.round(c1.b + (c2.b - c1.b) * frac);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+    const m = hex.replace("#", "").match(/^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return null;
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+  }
 
   const series = React.useMemo(() => {
-    const data: [number, number, number][] = [];
+    const data: { value: [number, number, number]; itemStyle: { color: string } }[] = [];
     sortedRows.forEach((row, rowIndex) => {
       periods.forEach((period, colIndex) => {
         const raw = row[period];
         const value = raw == null ? raw : Number(raw);
-        if (value !== null && value !== undefined && Number.isFinite(value)) {
-          data.push([colIndex, rowIndex, Number(value.toFixed(1))]);
-        }
+        if (value === null || value === undefined || !Number.isFinite(value)) return;
+        const range = periodMinMax.get(period) ?? { min: -5, max: 5 };
+        data.push({
+          value: [colIndex, rowIndex, Number(value.toFixed(1))],
+          itemStyle: { color: heatmapColor(value, range.min, range.max) },
+        });
       });
     });
     return [
@@ -99,7 +132,7 @@ export function ReturnsHeatmap({
         },
       },
     ];
-  }, [sortedRows, periods]);
+  }, [sortedRows, periods, periodMinMax]);
 
   React.useEffect(() => {
     const el = containerRef.current;
@@ -199,23 +232,10 @@ export function ReturnsHeatmap({
         data: yAxis,
         splitArea: { show: true },
       },
-      visualMap: {
-        min: selectedPeriodStats.min,
-        max: selectedPeriodStats.max,
-        inRange: {
-          color: ["#dc2626", "#fca5a5", "#fef2f2", "#fef9c3", "#86efac", "#166534"],
-        },
-        text: [`${selectedPeriodStats.max}%`, `${selectedPeriodStats.min}%`],
-        textStyle: { fontSize: 10 },
-        right: 0,
-        top: "center",
-        orient: "vertical",
-        calculable: true,
-      },
       series: series as any,
     };
     chart.setOption(option, true);
-  }, [series, yAxis, periodLabels, selectedPeriodStats]);
+  }, [series, yAxis, periodLabels]);
 
   React.useEffect(() => {
     const chart = chartRef.current;

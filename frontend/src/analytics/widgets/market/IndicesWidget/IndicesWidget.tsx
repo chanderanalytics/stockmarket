@@ -166,8 +166,7 @@ export function IndicesWidget() {
   const isError = Boolean(featuresQuery.error);
   const isEmpty = !isLoading && !isError && rawRows.length === 0;
 
-  const MAX_PERIODS = 3;
-  const [tooManyPeriods, setTooManyPeriods] = React.useState(false);
+  const BAR_CHART_PERIODS = 3;
 
   const togglePeriod = (period: ReturnSortKey) => {
     setSelectedPeriods((prev) => {
@@ -175,21 +174,18 @@ export function IndicesWidget() {
         if (prev.length > 1) return prev.filter((p) => p !== period);
         return prev;
       }
-      if (prev.length >= MAX_PERIODS) {
-        setTooManyPeriods(true);
-        return prev;
-      }
       return [...prev, period];
     });
   };
 
-  React.useEffect(() => {
-    if (tooManyPeriods) {
-      const timeout = setTimeout(() => setTooManyPeriods(false), 2000);
-      return () => clearTimeout(timeout);
-    }
-    return undefined;
-  }, [tooManyPeriods]);
+  const toggleAll = () => {
+    setSelectedPeriods((prev) => {
+      if (prev.length >= RETURN_PERIODS.length) return ["return_21d"];
+      return [...RETURN_PERIODS].map((p) => p.key);
+    });
+  };
+
+  const barChartPeriods = selectedPeriods.slice(0, BAR_CHART_PERIODS);
 
   return (
     <VisualizationContainer fullscreen={false} className="flex flex-col gap-4">
@@ -209,20 +205,10 @@ export function IndicesWidget() {
                 </span>
               </button>
             </DropdownMenuTrigger>
-            {tooManyPeriods && (
-              <div className="mt-2 text-xs text-destructive">You can select up to 3 periods only.</div>
-            )}
             <DropdownMenuContent align="start" className="min-w-[10rem] max-h-[60vh] overflow-y-auto">
               <DropdownMenuCheckboxItem
                 checked={selectedPeriods.length >= RETURN_PERIODS.length}
-                disabled={selectedPeriods.length >= RETURN_PERIODS.length}
-                onCheckedChange={() => {
-                  if (selectedPeriods.length === RETURN_PERIODS.length) {
-                    setSelectedPeriods(["return_21d"]);
-                  } else {
-                    setSelectedPeriods(RETURN_PERIODS.slice(0, MAX_PERIODS).map((p) => p.key));
-                  }
-                }}
+                onCheckedChange={toggleAll}
               >
                 {selectedPeriods.length >= RETURN_PERIODS.length ? "Unselect All" : "Select All"}
               </DropdownMenuCheckboxItem>
@@ -231,7 +217,6 @@ export function IndicesWidget() {
                 <DropdownMenuCheckboxItem
                   key={period.key}
                   checked={selectedPeriods.includes(period.key)}
-                  disabled={!selectedPeriods.includes(period.key) && selectedPeriods.length >= MAX_PERIODS}
                   onCheckedChange={() => togglePeriod(period.key)}
                   onSelect={(e) => e.preventDefault()}
                 >
@@ -389,7 +374,7 @@ export function IndicesWidget() {
                 </div>
                 <PerformanceBarChart
                   rows={filteredRows}
-                  periods={sortedSelectedPeriods}
+                  periods={barChartPeriods}
                   loading={isLoading}
                   sortKey={sortKey as ReturnSortKey}
                   sortDir={sortDir}
