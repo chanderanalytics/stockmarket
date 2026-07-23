@@ -144,7 +144,7 @@ export function ReturnsHeatmap({
 
       const gridTop = 32;
       const gridBottom = chartHeight - 48;
-      const gridLeft = 120;
+      const gridLeft = 180;
       const gridRight = chartWidth - 70;
 
       const handleSort = (colIndex: number) => {
@@ -194,7 +194,7 @@ export function ReturnsHeatmap({
           return `${params.marker ?? ""} ${name}<br/>${period}: ${sign}${num.toFixed(1)}%`;
         },
       },
-      grid: { top: 32, right: 70, bottom: 48, left: 120 },
+      grid: { top: 32, right: 70, bottom: 48, left: 180 },
       xAxis: [
         {
           type: "category",
